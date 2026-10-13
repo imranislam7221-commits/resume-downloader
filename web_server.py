@@ -2261,4 +2261,4 @@ def stream_logs():
 
 if __name__ == "__main__":
     add_log("Enterprise Recruitment Hub initialized on http://127.0.0.1:5000", "SUCCESS")
-    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
