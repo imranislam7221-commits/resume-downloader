@@ -15,7 +15,6 @@ def is_startup_enabled() -> bool:
 
 def enable_startup(app_dir: str = "") -> bool:
     if not app_dir:
-        # Default to project root directory
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     startup_dir = get_startup_folder()

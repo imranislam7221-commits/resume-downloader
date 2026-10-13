@@ -28,9 +28,9 @@ class ResumeDownloaderApp(ctk.CTk):
     def __init__(self, start_minimized: bool = False):
         super().__init__()
 
-        self.title("Resume Downloader & Gmail Auto-Sorter")
-        self.geometry("960x780")
-        self.minsize(880, 680)
+        self.title("ResumeFlow Pro | Autonomous Gmail Ingestion & Applicant Sorter")
+        self.geometry("980x800")
+        self.minsize(900, 700)
 
         # Core Services
         self.config_manager = ConfigManager(CONFIG_FILE)
@@ -108,9 +108,10 @@ class ResumeDownloaderApp(ctk.CTk):
 
         self.btn_monitor = ctk.CTkButton(
             action_frame,
-            text="▶  START MONITORING",
-            font=ctk.CTkFont(size=15, weight="bold"),
-            height=46,
+            text="▶  START ENGINE",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            height=48,
+            corner_radius=10,
             fg_color="#10b981",
             hover_color="#059669",
             command=self.toggle_monitoring
@@ -177,7 +178,7 @@ class ResumeDownloaderApp(ctk.CTk):
 
         self.header.set_monitoring_state(True)
         self.btn_monitor.configure(
-            text="⏹  STOP MONITORING",
+            text="⏹  STOP ENGINE",
             fg_color="#ef4444",
             hover_color="#dc2626"
         )
@@ -207,7 +208,7 @@ class ResumeDownloaderApp(ctk.CTk):
 
         self.header.set_monitoring_state(False)
         self.btn_monitor.configure(
-            text="▶  START MONITORING",
+            text="▶  START ENGINE",
             fg_color="#10b981",
             hover_color="#059669"
         )

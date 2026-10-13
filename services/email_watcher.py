@@ -6,8 +6,13 @@ import hashlib
 import threading
 from datetime import datetime
 from typing import List, Dict, Callable, Optional, Set
-from imap_tools import MailBox, AND, MailMessageFlags
-from imap_tools.errors import MailboxLoginError, ImapToolsError
+try:
+    from imap_tools import MailBox, AND, MailMessageFlags
+    from imap_tools.errors import MailboxLoginError, ImapToolsError
+except ImportError:
+    MailBox = AND = MailMessageFlags = None
+    class MailboxLoginError(Exception): pass
+    class ImapToolsError(Exception): pass
 
 from utils.file_utils import sanitize_folder_name, sanitize_filename, get_unique_filepath, ALLOWED_EXTENSIONS
 from services.notification_service import send_windows_toast, send_telegram_alert
@@ -20,9 +25,17 @@ MANIFEST_HEADERS = [
 ]
 
 def parse_applicant_info(from_header: str):
-    name, addr = email.utils.parseaddr(from_header or "")
-    clean_name = re.sub(r'[\\/*?:"<>|]', '_', name).strip()
-    return clean_name if clean_name else "Applicant", addr or from_header
+    header_str = (from_header or "").strip()
+    name, addr = email.utils.parseaddr(header_str)
+    # If parseaddr missed parts of display name due to colons or non-RFC quoting
+    if "<" in header_str and ">" in header_str:
+        prefix = header_str[:header_str.rfind("<")].strip().strip('"\'')
+        if prefix:
+            name = prefix
+
+    clean_name = re.sub(r'[\r\n\t]', ' ', name)
+    clean_name = re.sub(r'[\\/*?:"<>|]', '_', clean_name).strip()
+    return clean_name if clean_name else "Applicant", addr or header_str
 
 class EmailWatcher:
     def __init__(
@@ -161,6 +174,13 @@ class EmailWatcher:
             self.log(f"Notice during manifest upgrade: {e}", "WARNING")
 
     def _run_loop(self):
+        if MailBox is None:
+            msg = "imap-tools is not installed. Please install required dependencies: pip install -r requirements.txt"
+            self.log(msg, "ERROR")
+            if self.on_error:
+                self.on_error(msg)
+            return
+
         self.log(f"Connecting securely to imap.gmail.com:993 for account: {self.email_addr}...", "INFO")
 
         while not self.stop_event.is_set():
@@ -298,6 +318,8 @@ class EmailWatcher:
                                             self.log(f"Notice: Could not flag email {msg.uid} as read: {flag_err}", "WARNING")
 
                                     self.inspected_uids.add(msg.uid)
+                                    if len(self.inspected_uids) > 10000:
+                                        self.inspected_uids = set(list(self.inspected_uids)[-5000:])
 
                         except ImapToolsError as fetch_err:
                             self.log(f"IMAP Fetch Warning: {fetch_err}", "WARNING")
