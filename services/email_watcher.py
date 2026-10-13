@@ -9,8 +9,8 @@ from imap_tools import MailBox, AND, MailMessageFlags
 from imap_tools.errors import MailboxLoginError, ImapToolsError
 
 from utils.file_utils import sanitize_folder_name, sanitize_filename, get_unique_filepath, ALLOWED_EXTENSIONS
+from services.notification_service import send_windows_toast, send_telegram_alert
 
-# Support .pdf, .docx, .doc, .rtf
 EXTENSIONS = ALLOWED_EXTENSIONS + ('.rtf',)
 
 def parse_applicant_info(from_header: str):
@@ -27,17 +27,22 @@ class EmailWatcher:
         companies: List[Dict[str, str]],
         create_subfolders: bool = True,
         prefix_applicant_name: bool = True,
+        enable_desktop_toasts: bool = True,
+        telegram_token: str = "",
+        telegram_chat_id: str = "",
         log_callback: Callable[[str, str], None] = None,
         on_error_callback: Optional[Callable[[str], None]] = None,
         poll_interval: int = 10
     ):
         self.email_addr = email_addr.strip()
-        # Clean potential spaces from Google App Password (e.g. "abcd efgh ijkl mnop")
         self.app_pwd = "".join(app_pwd.split())
         self.base_dir = base_dir.strip()
         self.companies = companies
         self.create_subfolders = create_subfolders
         self.prefix_applicant_name = prefix_applicant_name
+        self.enable_desktop_toasts = enable_desktop_toasts
+        self.telegram_token = telegram_token.strip()
+        self.telegram_chat_id = telegram_chat_id.strip()
         self.log = log_callback or (lambda m, l: None)
         self.on_error = on_error_callback
         self.poll_interval = max(5, poll_interval)
@@ -87,7 +92,6 @@ class EmailWatcher:
 
                     while not self.stop_event.is_set():
                         try:
-                            # Fetch unread emails in safe batches of 30, newest first
                             unread_messages = list(mailbox.fetch(AND(seen=False), limit=30, mark_seen=False, reverse=True))
 
                             if unread_messages:
@@ -128,7 +132,6 @@ class EmailWatcher:
                                             ext = os.path.splitext(att.filename)[1].lower()
                                             if ext in EXTENSIONS:
                                                 clean_att = sanitize_filename(att.filename)
-                                                # Smart naming: prepend applicant name if not already in filename
                                                 if self.prefix_applicant_name and applicant_name != "Applicant":
                                                     norm_name = re.sub(r'\\s+', '_', applicant_name)
                                                     if norm_name.lower() not in clean_att.lower():
@@ -158,6 +161,24 @@ class EmailWatcher:
                                                 downloaded_this_email += 1
                                                 folder_lbl = f"{matched_company}/" if self.create_subfolders else "Selected Directory/"
                                                 self.log(f"Saved resume: '{final_fname}' ({size_kb} KB) -> [{folder_lbl}]", "SUCCESS")
+
+                                                # 1. Trigger Windows Desktop Toast Notification
+                                                if self.enable_desktop_toasts:
+                                                    send_windows_toast(
+                                                        title=f"📄 New Resume ({matched_company})",
+                                                        message=f"Applicant: {applicant_name}\nSaved: {final_fname}"
+                                                    )
+
+                                                # 2. Trigger Telegram Mobile Alert (if configured)
+                                                if self.telegram_token and self.telegram_chat_id:
+                                                    tele_msg = (
+                                                        f"📄 *New Resume Downloaded!*\n\n"
+                                                        f"🏢 *Company:* `{matched_company}`\n"
+                                                        f"👤 *Applicant:* {applicant_name}\n"
+                                                        f"✉️ *Email:* `{applicant_email}`\n"
+                                                        f"📁 *Saved As:* `{final_fname}` ({size_kb} KB)"
+                                                    )
+                                                    send_telegram_alert(self.telegram_token, self.telegram_chat_id, tele_msg)
 
                                         if downloaded_this_email > 0:
                                             self.log(f"Extracted {downloaded_this_email} resume file(s) for '{matched_company}'.", "SUCCESS")

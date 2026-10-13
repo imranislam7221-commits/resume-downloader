@@ -13,6 +13,7 @@ sys.path.insert(0, app_dir)
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
 from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
+from services.notification_service import send_windows_toast, send_telegram_alert
 from utils.file_utils import sanitize_folder_name, sanitize_filename, ALLOWED_EXTENSIONS
 from imap_tools import MailBox
 from imap_tools.errors import MailboxLoginError
@@ -51,12 +52,12 @@ def get_manifest_records(base_dir: str) -> List[Dict[str, Any]]:
             pass
     return list(reversed(records))
 
-HTML_BOOT = """<!DOCTYPE html>
+HTML_PRO_NOTIF = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resume Downloader & Gmail Auto-Sorter | 24/7 Autonomous</title>
+    <title>Resume Downloader & Gmail Auto-Sorter | Pro Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -155,7 +156,6 @@ HTML_BOOT = """<!DOCTYPE html>
         }
 
         .dot-indicator { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-
         .status-active .dot-indicator { animation: pulse-ring 1.8s infinite; }
 
         @keyframes pulse-ring {
@@ -371,6 +371,23 @@ HTML_BOOT = """<!DOCTYPE html>
 
         .btn-primary-small:hover { filter: brightness(1.15); }
 
+        .btn-preview {
+            background: rgba(56, 189, 248, 0.16);
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.35);
+            border-radius: 8px;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-preview:hover {
+            background: rgba(56, 189, 248, 0.3);
+            transform: scale(1.05);
+        }
+
         .manifest-card {
             background: var(--bg-card);
             border: 1px solid var(--border-card);
@@ -440,6 +457,61 @@ HTML_BOOT = """<!DOCTYPE html>
         .lr-level.WARNING { color: #fbbf24; }
         .lr-level.ERROR { color: #f87171; }
         .lr-msg { color: #cbd5e1; flex: 1; word-break: break-all; }
+
+        /* PDF Preview Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(4, 7, 16, 0.85);
+            backdrop-filter: blur(12px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 24px;
+        }
+
+        .modal-overlay.open { display: flex; }
+
+        .modal-box {
+            background: #0b1120;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 20px;
+            width: 100%;
+            max-width: 960px;
+            height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+            overflow: hidden;
+        }
+
+        .modal-header {
+            padding: 16px 24px;
+            background: rgba(15, 23, 42, 0.9);
+            border-bottom: 1px solid var(--border-card);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title h3 { font-size: 17px; font-weight: 700; }
+        .modal-title p { font-size: 12px; color: var(--text-muted); }
+
+        .modal-actions { display: flex; align-items: center; gap: 12px; }
+
+        .btn-modal-close {
+            background: rgba(244, 63, 94, 0.15);
+            color: #f43f5e;
+            border: 1px solid rgba(244, 63, 94, 0.3);
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .modal-iframe-wrap { flex: 1; background: #060911; width: 100%; height: 100%; }
 
         #toast {
             position: fixed;
@@ -523,9 +595,10 @@ HTML_BOOT = """<!DOCTYPE html>
         </div>
 
         <div class="main-grid">
+            <!-- Left Card: Credentials & Notification Options -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">🔑 Credentials & Auto-Run Settings</div>
+                    <div class="card-title">🔑 Credentials & Destination Path</div>
                     <button class="btn-ghost" onclick="testConnection()">⚡ Test Connection</button>
                 </div>
 
@@ -548,6 +621,21 @@ HTML_BOOT = """<!DOCTYPE html>
                 <div class="form-group">
                     <label>Base Download Directory (On Your PC)</label>
                     <input type="text" id="baseDirectory" placeholder="e.g. D:\\Resumes">
+                </div>
+
+                <!-- Windows Desktop Toast Alert -->
+                <div class="toggle-row" style="background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.3);">
+                    <div class="toggle-text">
+                        <h4 style="color: #34d399;">🔔 Windows Desktop Toast Notifications</h4>
+                        <p>Notun resume download hole Windows-e sound shoho pop-up ashbe</p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="btn-ghost" style="padding: 4px 8px; font-size: 11px;" onclick="testDesktopToast()">Test</button>
+                        <label class="switch">
+                            <input type="checkbox" id="desktopToastsToggle" checked onchange="saveConfig(true)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Windows Auto-Start Toggle -->
@@ -583,8 +671,21 @@ HTML_BOOT = """<!DOCTYPE html>
                         <span class="slider"></span>
                     </label>
                 </div>
+
+                <!-- Telegram Alerts (Optional) -->
+                <div style="margin-top: 14px; padding: 14px; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-card); border-radius: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span style="font-size: 13px; font-weight: 700; color: #38bdf8;">📱 Telegram Mobile Alerts (Optional)</span>
+                        <button class="btn-ghost" style="padding: 3px 8px; font-size: 11px;" onclick="testTelegramAlert()">Test Bot</button>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <input type="text" id="telegramToken" placeholder="Bot Token (e.g. 1234:ABC...)" oninput="saveConfig(true)" style="font-size: 12px; padding: 8px 10px;">
+                        <input type="text" id="telegramChatId" placeholder="Chat ID (e.g. 98765432)" oninput="saveConfig(true)" style="font-size: 12px; padding: 8px 10px;">
+                    </div>
+                </div>
             </div>
 
+            <!-- Right Card: Rules -->
             <div class="card">
                 <div class="card-header">
                     <div class="card-title">📋 Company Filtering Rules</div>
@@ -613,9 +714,10 @@ HTML_BOOT = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- Downloaded Resumes Manifest Table with PREVIEW Button -->
         <div class="manifest-card">
             <div class="card-header">
-                <div class="card-title">📁 Downloaded Resumes & Applicant Index</div>
+                <div class="card-title">📁 Downloaded Resumes & Live PDF Previewer</div>
                 <div class="manifest-toolbar">
                     <input type="text" id="manifestSearch" class="search-input" placeholder="Search applicant, company..." oninput="filterManifestTable()">
                     <button class="btn-ghost" onclick="openBaseFolder()">📂 Open Folder</button>
@@ -634,7 +736,7 @@ HTML_BOOT = """<!DOCTYPE html>
                             <th>Applicant Email</th>
                             <th>Filename</th>
                             <th>Size</th>
-                            <th>Action</th>
+                            <th style="text-align: center;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="manifestBody">
@@ -660,11 +762,31 @@ HTML_BOOT = """<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- In-Dashboard Fullscreen PDF Viewer Modal -->
+    <div id="pdfModal" class="modal-overlay" onclick="handleModalOverlayClick(event)">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <h3 id="modalApplicantName">Applicant Resume</h3>
+                    <p id="modalFileInfo">Viewing local PDF document</p>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn-ghost" id="modalOpenExternalBtn" onclick="openCurrentFileExternally()">📂 Open in PC</button>
+                    <button class="btn-modal-close" onclick="closePdfModal()">✕ Close</button>
+                </div>
+            </div>
+            <div class="modal-iframe-wrap">
+                <iframe id="pdfFrame" src="" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
+        </div>
+    </div>
+
     <div id="toast">Settings Saved</div>
 
     <script>
         let isMonitoring = false;
         let allManifestRecords = [];
+        let currentModalFilePath = "";
 
         function showToast(msg) {
             const t = document.getElementById('toast');
@@ -692,8 +814,12 @@ HTML_BOOT = """<!DOCTYPE html>
                 if (data.prefix_applicant_name !== undefined) {
                     document.getElementById('prefixApplicantName').checked = data.prefix_applicant_name;
                 }
+                if (data.enable_desktop_toasts !== undefined) {
+                    document.getElementById('desktopToastsToggle').checked = data.enable_desktop_toasts;
+                }
+                document.getElementById('telegramToken').value = data.telegram_token || '';
+                document.getElementById('telegramChatId').value = data.telegram_chat_id || '';
 
-                // Check Startup Status
                 const sRes = await fetch('/api/startup/status');
                 const sData = await sRes.json();
                 document.getElementById('windowsStartupToggle').checked = sData.enabled;
@@ -751,6 +877,9 @@ HTML_BOOT = """<!DOCTYPE html>
                 base_directory: document.getElementById('baseDirectory').value.trim(),
                 create_subfolders: document.getElementById('createSubfolders').checked,
                 prefix_applicant_name: document.getElementById('prefixApplicantName').checked,
+                enable_desktop_toasts: document.getElementById('desktopToastsToggle').checked,
+                telegram_token: document.getElementById('telegramToken').value.trim(),
+                telegram_chat_id: document.getElementById('telegramChatId').value.trim(),
                 auto_start_monitoring: true,
                 companies: getRules()
             };
@@ -775,6 +904,32 @@ HTML_BOOT = """<!DOCTYPE html>
             const data = await res.json();
             if (data.success) {
                 showToast(enabled ? '✅ Enabled: Will run automatically on PC boot' : 'Disabled from PC boot');
+            }
+        }
+
+        async function testDesktopToast() {
+            showToast('Sending Windows Toast...');
+            await fetch('/api/test_toast', { method: 'POST' });
+        }
+
+        async function testTelegramAlert() {
+            const token = document.getElementById('telegramToken').value.trim();
+            const chat = document.getElementById('telegramChatId').value.trim();
+            if (!token || !chat) {
+                alert('Please enter your Telegram Bot Token and Chat ID first.');
+                return;
+            }
+            showToast('Sending Telegram message...');
+            const res = await fetch('/api/test_telegram', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, chat_id: chat })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('✅ Telegram Alert Sent!');
+            } else {
+                alert('Telegram Failed: ' + data.error);
             }
         }
 
@@ -828,6 +983,34 @@ HTML_BOOT = """<!DOCTYPE html>
             });
         }
 
+        /* Modal PDF Preview Functions */
+        function previewPdf(applicantName, company, filename, path) {
+            currentModalFilePath = path;
+            document.getElementById('modalApplicantName').innerText = `${applicantName} (${company})`;
+            document.getElementById('modalFileInfo').innerText = `File: ${filename}`;
+            const pdfUrl = `/api/view_pdf?path=${encodeURIComponent(path)}`;
+            document.getElementById('pdfFrame').src = pdfUrl;
+            document.getElementById('pdfModal').classList.add('open');
+        }
+
+        function closePdfModal() {
+            document.getElementById('pdfModal').classList.remove('open');
+            document.getElementById('pdfFrame').src = "";
+            currentModalFilePath = "";
+        }
+
+        function handleModalOverlayClick(e) {
+            if (e.target.id === 'pdfModal') {
+                closePdfModal();
+            }
+        }
+
+        function openCurrentFileExternally() {
+            if (currentModalFilePath) {
+                openSpecificFile(currentModalFilePath);
+            }
+        }
+
         async function fetchManifest() {
             try {
                 const res = await fetch('/api/manifest');
@@ -869,8 +1052,9 @@ HTML_BOOT = """<!DOCTYPE html>
                     <td style="color: #94a3b8;">${escapeHtml(r['Applicant Email'] || '')}</td>
                     <td style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #38bdf8;">${escapeHtml(r['Filename'] || '')}</td>
                     <td style="color: #64748b;">${escapeHtml(r['File Size (KB)'] || '0')} KB</td>
-                    <td>
-                        <button class="btn-ghost" style="padding: 4px 8px; font-size: 11px;" onclick="openSpecificFile('${escapeJs(r['File Path'])}')">📂 Open</button>
+                    <td style="text-align: center;">
+                        <button class="btn-preview" onclick="previewPdf('${escapeJs(r['Applicant Name'])}', '${escapeJs(r['Company'])}', '${escapeJs(r['Filename'])}', '${escapeJs(r['File Path'])}')">👁️ Preview</button>
+                        <button class="btn-ghost" style="padding: 5px 8px; font-size: 11px; margin-left: 4px;" onclick="openSpecificFile('${escapeJs(r['File Path'])}')">📂 Open</button>
                     </td>
                 </tr>
             `).join('');
@@ -963,7 +1147,7 @@ HTML_BOOT = """<!DOCTYPE html>
 
 @app.route("/")
 def index():
-    return render_template_string(HTML_BOOT)
+    return render_template_string(HTML_PRO_NOTIF)
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
@@ -989,6 +1173,39 @@ def startup_toggle():
     else:
         res = disable_startup()
     return jsonify({"success": res, "enabled": is_startup_enabled()})
+
+@app.route("/api/test_toast", methods=["POST"])
+def test_toast_endpoint():
+    res = send_windows_toast(
+        title="📄 Resume Downloader Alert",
+        message="Windows Desktop Toast is working with sound! Notifications are ready."
+    )
+    return jsonify({"success": res})
+
+@app.route("/api/test_telegram", methods=["POST"])
+def test_telegram_endpoint():
+    data = request.json or {}
+    token = data.get("token", "").strip()
+    chat_id = data.get("chat_id", "").strip()
+    test_msg = "⚡ *Resume Downloader Alert Test*\n\nYour Telegram bot is successfully connected!"
+    res = send_telegram_alert(token, chat_id, test_msg)
+    return jsonify({"success": res, "error": "" if res else "Failed to send message. Please verify bot token & chat ID."})
+
+@app.route("/api/view_pdf", methods=["GET"])
+def view_pdf_endpoint():
+    path = request.args.get("path", "")
+    if not path or not os.path.exists(path):
+        return "File not found.", 404
+    try:
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".pdf":
+            with open(path, "rb") as f:
+                data = f.read()
+            return Response(data, mimetype="application/pdf", headers={"Content-Disposition": "inline; filename=resume.pdf"})
+        else:
+            return f"<h3>Preview is available for .pdf files.</h3><p>This is a <b>{ext}</b> file. Please click 'Open in PC' to view.</p>", 200
+    except Exception as e:
+        return f"Error reading file: {e}", 500
 
 @app.route("/api/test_connection", methods=["POST"])
 def test_connection_endpoint():
@@ -1077,6 +1294,9 @@ def start_monitoring():
     base_dir = cfg.get("base_directory", "").strip()
     create_subfolders = cfg.get("create_subfolders", True)
     prefix_applicant_name = cfg.get("prefix_applicant_name", True)
+    enable_desktop_toasts = cfg.get("enable_desktop_toasts", True)
+    telegram_token = cfg.get("telegram_token", "")
+    telegram_chat_id = cfg.get("telegram_chat_id", "")
     companies = cfg.get("companies", [])
 
     if not email_addr:
@@ -1100,12 +1320,15 @@ def start_monitoring():
         companies=companies,
         create_subfolders=create_subfolders,
         prefix_applicant_name=prefix_applicant_name,
+        enable_desktop_toasts=enable_desktop_toasts,
+        telegram_token=telegram_token,
+        telegram_chat_id=telegram_chat_id,
         log_callback=add_log,
         on_error_callback=lambda err: stop_monitoring_internal()
     )
     active_watcher.start()
     is_monitoring = True
-    add_log("Autonomous Resume Downloader Engine started. Listening for incoming applicants...", "INFO")
+    add_log("Autonomous Resume Downloader Engine started. Real-time applicant ingestion active.", "INFO")
     return jsonify({"status": "started"})
 
 def stop_monitoring_internal():
@@ -1129,5 +1352,5 @@ def clear_logs():
     return jsonify({"status": "cleared"})
 
 if __name__ == "__main__":
-    print("Serving Autonomous Resume Downloader Dashboard at http://127.0.0.1:5000")
+    print("Serving Pro Resume Downloader Dashboard with PDF Viewer & Alerts at http://127.0.0.1:5000")
     app.run(host="0.0.0.0", port=5000, debug=False)
