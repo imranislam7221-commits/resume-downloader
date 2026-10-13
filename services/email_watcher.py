@@ -2,6 +2,7 @@ import os
 import re
 import csv
 import email.utils
+import hashlib
 import threading
 from datetime import datetime
 from typing import List, Dict, Callable, Optional, Set
@@ -12,6 +13,11 @@ from utils.file_utils import sanitize_folder_name, sanitize_filename, get_unique
 from services.notification_service import send_windows_toast, send_telegram_alert
 
 EXTENSIONS = ALLOWED_EXTENSIONS + ('.rtf',)
+MANIFEST_HEADERS = [
+    "Downloaded At", "Company", "Applicant Name", "Applicant Email",
+    "Email Subject", "Filename", "File Size (KB)", "File Path",
+    "SHA256", "Status", "Notes"
+]
 
 def parse_applicant_info(from_header: str):
     name, addr = email.utils.parseaddr(from_header or "")
@@ -47,28 +53,73 @@ class EmailWatcher:
         self.on_error = on_error_callback
         self.poll_interval = max(5, poll_interval)
         self.stop_event = threading.Event()
+        self.scan_now_event = threading.Event()
         self.thread: Optional[threading.Thread] = None
         self.inspected_uids: Set[str] = set()
+        self.known_hashes: Set[str] = set()
+        self.duplicates_prevented = 0
+        self._load_existing_hashes()
+
+    def _load_existing_hashes(self):
+        """Loads SHA256 hashes of previously downloaded files to prevent duplicate downloads."""
+        manifest_file = os.path.join(self.base_dir, "resumes_manifest.csv")
+        if os.path.exists(manifest_file):
+            try:
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        sha = row.get("SHA256", "").strip()
+                        if sha:
+                            self.known_hashes.add(sha)
+            except Exception as e:
+                self.log(f"Notice: Could not index existing resume hashes: {e}", "WARNING")
 
     def start(self):
         self.stop_event.clear()
+        self.scan_now_event.clear()
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
 
     def stop(self):
         self.stop_event.set()
+        self.scan_now_event.set()
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
 
-    def _record_manifest(self, company: str, app_name: str, app_email: str, subject: str, fname: str, size_kb: float, full_path: str):
+    def trigger_scan_now(self):
+        """Wake up watcher immediately to scan inbox without waiting for interval."""
+        self.scan_now_event.set()
+
+    def _record_manifest(
+        self,
+        company: str,
+        app_name: str,
+        app_email: str,
+        subject: str,
+        fname: str,
+        size_kb: float,
+        full_path: str,
+        sha256_hash: str,
+        status: str = "New",
+        notes: str = ""
+    ):
         try:
             os.makedirs(self.base_dir, exist_ok=True)
             manifest_file = os.path.join(self.base_dir, "resumes_manifest.csv")
             needs_header = not os.path.exists(manifest_file)
+            
+            # If manifest exists but with old header format, migrate it seamlessly
+            if os.path.exists(manifest_file):
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    first_line = f.readline()
+                if "SHA256" not in first_line:
+                    self._migrate_manifest_file(manifest_file)
+                    needs_header = False
+
             with open(manifest_file, "a", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 if needs_header:
-                    writer.writerow(["Downloaded At", "Company", "Applicant Name", "Applicant Email", "Email Subject", "Filename", "File Size (KB)", "File Path"])
+                    writer.writerow(MANIFEST_HEADERS)
                 writer.writerow([
                     datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     company,
@@ -77,10 +128,37 @@ class EmailWatcher:
                     subject,
                     fname,
                     size_kb,
-                    full_path
+                    full_path,
+                    sha256_hash,
+                    status,
+                    notes
                 ])
         except Exception as e:
             self.log(f"Notice: Could not write to resumes_manifest.csv: {e}", "WARNING")
+
+    def _migrate_manifest_file(self, manifest_file: str):
+        """Migrate legacy CSV without breaking previous candidate history."""
+        try:
+            rows = []
+            with open(manifest_file, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                for r in reader:
+                    if r:
+                        # Old format has 8 columns: [Downloaded At, Company, Applicant Name, Applicant Email, Email Subject, Filename, File Size (KB), File Path]
+                        while len(r) < len(MANIFEST_HEADERS):
+                            r.append("") # Pad missing columns (SHA256, Status, Notes)
+                        if len(r) >= 10 and not r[9]:
+                            r[9] = "New" # Default status
+                        rows.append(r[:len(MANIFEST_HEADERS)])
+
+            with open(manifest_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(MANIFEST_HEADERS)
+                writer.writerows(rows)
+            self.log("Upgraded resumes_manifest.csv to professional schema (SHA256, Status, Notes).", "INFO")
+        except Exception as e:
+            self.log(f"Notice during manifest upgrade: {e}", "WARNING")
 
     def _run_loop(self):
         self.log(f"Connecting securely to imap.gmail.com:993 for account: {self.email_addr}...", "INFO")
@@ -131,9 +209,30 @@ class EmailWatcher:
                                         for att in msg.attachments:
                                             ext = os.path.splitext(att.filename)[1].lower()
                                             if ext in EXTENSIONS:
+                                                payload = att.payload
+                                                payload_len = len(payload)
+                                                
+                                                # Reject empty (0-byte) or abnormally large (> 30MB) files
+                                                if payload_len < 512:
+                                                    self.log(f"Skipped corrupt/empty attachment '{att.filename}' (<512 bytes).", "WARNING")
+                                                    continue
+                                                if payload_len > 30 * 1024 * 1024:
+                                                    self.log(f"Skipped oversize attachment '{att.filename}' (>30 MB).", "WARNING")
+                                                    continue
+
+                                                # Calculate SHA-256 checksum for professional deduplication
+                                                file_sha = hashlib.sha256(payload).hexdigest()
+                                                if file_sha in self.known_hashes:
+                                                    self.duplicates_prevented += 1
+                                                    self.log(
+                                                        f"⚡ [DEDUPLICATION] Skipped duplicate resume '{att.filename}' from {applicant_name} (SHA-256 matched an already downloaded CV).",
+                                                        "WARNING"
+                                                    )
+                                                    continue
+
                                                 clean_att = sanitize_filename(att.filename)
                                                 if self.prefix_applicant_name and applicant_name != "Applicant":
-                                                    norm_name = re.sub(r'\\s+', '_', applicant_name)
+                                                    norm_name = re.sub(r'\s+', '_', applicant_name)
                                                     if norm_name.lower() not in clean_att.lower():
                                                         chosen_name = f"{norm_name}_{clean_att}"
                                                     else:
@@ -145,9 +244,11 @@ class EmailWatcher:
                                                 final_fname = os.path.basename(save_path)
 
                                                 with open(save_path, "wb") as f:
-                                                    f.write(att.payload)
+                                                    f.write(payload)
 
-                                                size_kb = round(len(att.payload) / 1024, 1)
+                                                self.known_hashes.add(file_sha)
+                                                size_kb = round(payload_len / 1024, 1)
+
                                                 self._record_manifest(
                                                     company=matched_company,
                                                     app_name=applicant_name,
@@ -155,7 +256,10 @@ class EmailWatcher:
                                                     subject=msg.subject or "",
                                                     fname=final_fname,
                                                     size_kb=size_kb,
-                                                    full_path=save_path
+                                                    full_path=save_path,
+                                                    sha256_hash=file_sha,
+                                                    status="New",
+                                                    notes=""
                                                 )
 
                                                 downloaded_this_email += 1
@@ -183,7 +287,7 @@ class EmailWatcher:
                                         if downloaded_this_email > 0:
                                             self.log(f"Extracted {downloaded_this_email} resume file(s) for '{matched_company}'.", "SUCCESS")
                                         else:
-                                            self.log(f"Email matched '{matched_company}', but no attached resume (.pdf/.docx/.doc) found.", "WARNING")
+                                            self.log(f"Email matched '{matched_company}', but no new attached resume (.pdf/.docx/.doc) found.", "WARNING")
 
                                         try:
                                             mailbox.flag(msg.uid, MailMessageFlags.SEEN, True)
@@ -198,8 +302,10 @@ class EmailWatcher:
                         except Exception as inner_err:
                             self.log(f"Inbox parsing warning: {inner_err}", "WARNING")
 
-                        if self.stop_event.wait(timeout=self.poll_interval):
-                            break
+                        # Wait for poll_interval OR scan_now trigger
+                        if self.scan_now_event.wait(timeout=self.poll_interval):
+                            self.scan_now_event.clear()
+                            self.log("⚡ Instant scan triggered! Checking inbox right now...", "INFO")
 
             except MailboxLoginError as login_err:
                 msg = f"Gmail Authentication Failed: {login_err}. Please ensure 2-Step Verification is active and use a 16-character App Password."
