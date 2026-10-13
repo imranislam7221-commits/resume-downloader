@@ -1,0 +1,18 @@
+{
+    "gmail_address": "your.email@gmail.com",
+    "app_password": "xxxx xxxx xxxx xxxx",
+    "base_directory": "D:\\Resumes",
+    "create_subfolders": true,
+    "prefix_applicant_name": true,
+    "poll_interval": 10,
+    "companies": [
+        {
+            "name": "Google",
+            "keyword": "google"
+        },
+        {
+            "name": "Microsoft",
+            "keyword": "microsoft"
+        }
+    ]
+}

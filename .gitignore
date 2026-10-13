@@ -1,0 +1,20 @@
+# Byte-compiled files
+__pycache__/
+*.py[cod]
+*.cpython-*.pyc
+
+# Local Sensitive Config
+config.json
+
+# Local Logs & Data
+*.log
+resumes_manifest.csv
+test_*.txt
+test_*.json
+app_stderr.log
+app_stdout.log
+
+# System Files
+Thumbs.db
+Desktop.ini
+.DS_Store
