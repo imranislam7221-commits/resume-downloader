@@ -3,25 +3,41 @@ import sys
 import csv
 import json
 import time
+import threading
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-from flask import Flask, request, jsonify, render_template_string, send_file, Response
+try:
+    from flask import Flask, request, jsonify, render_template_string, send_file, Response
+except ImportError:
+    Flask = None
 
-app_dir = r"D:\Imran parsonal\pervez vi mollik\Resume downloader"
+app_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, app_dir)
 
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
 from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
 from utils.file_utils import sanitize_folder_name, sanitize_filename, ALLOWED_EXTENSIONS
-from imap_tools import MailBox
-from imap_tools.errors import MailboxLoginError
 
-app = Flask(__name__)
+try:
+    from imap_tools import MailBox
+    from imap_tools.errors import MailboxLoginError
+except ImportError:
+    MailBox = None
+    class MailboxLoginError(Exception): pass
+
+if Flask is not None:
+    app = Flask(__name__)
+else:
+    class DummyApp:
+        def route(self, *args, **kwargs):
+            return lambda f: f
+    app = DummyApp()
 
 CONFIG_PATH = os.path.join(app_dir, "config.json")
 config_manager = ConfigManager(CONFIG_PATH)
 
+state_lock = threading.Lock()
 logs_history = []
 is_monitoring = False
 active_watcher: Optional[EmailWatcher] = None
@@ -32,9 +48,10 @@ def add_log(message: str, level: str = "INFO"):
         "level": level.upper(),
         "message": message
     }
-    logs_history.append(entry)
-    if len(logs_history) > 400:
-        logs_history.pop(0)
+    with state_lock:
+        logs_history.append(entry)
+        if len(logs_history) > 400:
+            logs_history.pop(0)
 
 add_log("Resume Downloader Intelligence Engine initialized.", "INFO")
 
@@ -961,9 +978,19 @@ HTML_BOOT = """<!DOCTYPE html>
 </html>
 """
 
+def get_dashboard_html() -> str:
+    tmpl_path = os.path.join(app_dir, "templates", "index.html")
+    if os.path.exists(tmpl_path):
+        try:
+            with open(tmpl_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            pass
+    return HTML_BOOT
+
 @app.route("/")
 def index():
-    return render_template_string(HTML_BOOT)
+    return render_template_string(get_dashboard_html())
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
@@ -1057,9 +1084,12 @@ def monitoring_status():
     cfg = config_manager.load_config()
     base_dir = cfg.get("base_directory", app_dir)
     records = get_manifest_records(base_dir)
+    with state_lock:
+        current_monitoring = is_monitoring
+        logs_copy = list(logs_history)
     return jsonify({
-        "is_monitoring": is_monitoring,
-        "logs": logs_history,
+        "is_monitoring": current_monitoring,
+        "logs": logs_copy,
         "stats": {
             "downloaded_resumes": len(records),
             "matched_emails": len(records),
@@ -1090,30 +1120,32 @@ def start_monitoring():
 
     os.makedirs(base_dir, exist_ok=True)
 
-    if active_watcher:
-        active_watcher.stop()
+    with state_lock:
+        if active_watcher:
+            active_watcher.stop()
 
-    active_watcher = EmailWatcher(
-        email_addr=email_addr,
-        app_pwd=app_pwd,
-        base_dir=base_dir,
-        companies=companies,
-        create_subfolders=create_subfolders,
-        prefix_applicant_name=prefix_applicant_name,
-        log_callback=add_log,
-        on_error_callback=lambda err: stop_monitoring_internal()
-    )
-    active_watcher.start()
-    is_monitoring = True
+        active_watcher = EmailWatcher(
+            email_addr=email_addr,
+            app_pwd=app_pwd,
+            base_dir=base_dir,
+            companies=companies,
+            create_subfolders=create_subfolders,
+            prefix_applicant_name=prefix_applicant_name,
+            log_callback=add_log,
+            on_error_callback=lambda err: stop_monitoring_internal()
+        )
+        active_watcher.start()
+        is_monitoring = True
     add_log("Autonomous Resume Downloader Engine started. Listening for incoming applicants...", "INFO")
     return jsonify({"status": "started"})
 
 def stop_monitoring_internal():
     global is_monitoring, active_watcher
-    is_monitoring = False
-    if active_watcher:
-        active_watcher.stop()
-        active_watcher = None
+    with state_lock:
+        is_monitoring = False
+        if active_watcher:
+            active_watcher.stop()
+            active_watcher = None
 
 @app.route("/api/monitoring/stop", methods=["POST"])
 def stop_monitoring():
@@ -1124,10 +1156,14 @@ def stop_monitoring():
 @app.route("/api/logs/clear", methods=["POST"])
 def clear_logs():
     global logs_history
-    logs_history.clear()
+    with state_lock:
+        logs_history.clear()
     add_log("Terminal stream cleared.", "INFO")
     return jsonify({"status": "cleared"})
 
 if __name__ == "__main__":
+    if Flask is None:
+        print("Error: Flask is not installed. Please install dependencies: pip install -r requirements.txt")
+        sys.exit(1)
     print("Serving Autonomous Resume Downloader Dashboard at http://127.0.0.1:5000")
     app.run(host="0.0.0.0", port=5000, debug=False)

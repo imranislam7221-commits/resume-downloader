@@ -6,31 +6,54 @@ from typing import Callable, Optional
 
 class CredentialsComponent(ctk.CTkFrame):
     def __init__(self, master, on_change: Optional[Callable[[], None]] = None, **kwargs):
-        super().__init__(master, corner_radius=10, **kwargs)
+        super().__init__(
+            master,
+            corner_radius=14,
+            fg_color=("#111827", "#0d1321"),
+            border_width=1,
+            border_color="#1e293b",
+            **kwargs
+        )
         self.on_change = on_change
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(3, weight=1)
 
-        ctk.CTkLabel(self, text="Gmail Address:", font=ctk.CTkFont(weight="bold")).grid(
-            row=0, column=0, padx=(15, 10), pady=(12, 6), sticky="w"
+        ctk.CTkLabel(
+            self,
+            text="Gmail Address:",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#e2e8f0"
+        ).grid(row=0, column=0, padx=(18, 10), pady=(14, 6), sticky="w")
+
+        self.email_entry = ctk.CTkEntry(
+            self,
+            placeholder_text="your.name@gmail.com",
+            height=36,
+            corner_radius=8,
+            border_color="#334155"
         )
-        self.email_entry = ctk.CTkEntry(self, placeholder_text="your.email@gmail.com", height=34)
-        self.email_entry.grid(row=0, column=1, padx=(0, 15), pady=(12, 6), sticky="ew")
+        self.email_entry.grid(row=0, column=1, padx=(0, 18), pady=(14, 6), sticky="ew")
         self.email_entry.bind("<KeyRelease>", self._trigger_change)
 
-        ctk.CTkLabel(self, text="App Password:", font=ctk.CTkFont(weight="bold")).grid(
-            row=0, column=2, padx=(15, 10), pady=(12, 6), sticky="w"
-        )
+        ctk.CTkLabel(
+            self,
+            text="App Password:",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#e2e8f0"
+        ).grid(row=0, column=2, padx=(18, 10), pady=(14, 6), sticky="w")
+
         pwd_container = ctk.CTkFrame(self, fg_color="transparent")
-        pwd_container.grid(row=0, column=3, padx=(0, 15), pady=(12, 6), sticky="ew")
+        pwd_container.grid(row=0, column=3, padx=(0, 18), pady=(14, 6), sticky="ew")
         pwd_container.grid_columnconfigure(0, weight=1)
 
         self.password_entry = ctk.CTkEntry(
             pwd_container,
             placeholder_text="16-character Google App Password",
             show="*",
-            height=34
+            height=36,
+            corner_radius=8,
+            border_color="#334155"
         )
         self.password_entry.grid(row=0, column=0, sticky="ew")
         self.password_entry.bind("<KeyRelease>", self._trigger_change)
@@ -39,28 +62,43 @@ class CredentialsComponent(ctk.CTkFrame):
             pwd_container,
             text="👁",
             width=36,
-            height=34,
-            fg_color="#334155",
-            hover_color="#475569",
+            height=36,
+            corner_radius=8,
+            fg_color="#1e293b",
+            hover_color="#334155",
             command=self.toggle_password_visibility
         )
-        self.btn_toggle_pwd.grid(row=0, column=1, padx=(5, 0))
+        self.btn_toggle_pwd.grid(row=0, column=1, padx=(6, 0))
 
-        ctk.CTkLabel(self, text="Download Directory:", font=ctk.CTkFont(weight="bold")).grid(
-            row=1, column=0, padx=(15, 10), pady=(6, 12), sticky="w"
+        ctk.CTkLabel(
+            self,
+            text="Base Directory:",
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+            text_color="#e2e8f0"
+        ).grid(row=1, column=0, padx=(18, 10), pady=(6, 14), sticky="w")
+
+        self.dir_entry = ctk.CTkEntry(
+            self,
+            placeholder_text="Select destination folder on your PC...",
+            height=36,
+            corner_radius=8,
+            border_color="#334155"
         )
-        self.dir_entry = ctk.CTkEntry(self, placeholder_text="Select base destination folder...", height=34)
-        self.dir_entry.grid(row=1, column=1, columnspan=2, padx=(0, 10), pady=(6, 12), sticky="ew")
+        self.dir_entry.grid(row=1, column=1, columnspan=2, padx=(0, 12), pady=(6, 14), sticky="ew")
         self.dir_entry.bind("<KeyRelease>", self._trigger_change)
 
         dir_buttons_frame = ctk.CTkFrame(self, fg_color="transparent")
-        dir_buttons_frame.grid(row=1, column=3, padx=(0, 15), pady=(6, 12), sticky="ew")
+        dir_buttons_frame.grid(row=1, column=3, padx=(0, 18), pady=(6, 14), sticky="ew")
 
         btn_browse = ctk.CTkButton(
             dir_buttons_frame,
             text="📁 Browse...",
-            width=100,
-            height=34,
+            width=96,
+            height=36,
+            corner_radius=8,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=self.browse_directory
         )
         btn_browse.pack(side="left", padx=(0, 6))
@@ -68,10 +106,12 @@ class CredentialsComponent(ctk.CTkFrame):
         btn_open = ctk.CTkButton(
             dir_buttons_frame,
             text="📂 Open",
-            width=70,
-            height=34,
-            fg_color="#334155",
-            hover_color="#475569",
+            width=76,
+            height=36,
+            corner_radius=8,
+            fg_color="#1e293b",
+            hover_color="#334155",
+            font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             command=self.open_directory
         )
         btn_open.pack(side="left")

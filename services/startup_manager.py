@@ -14,7 +14,9 @@ def is_startup_enabled() -> bool:
     target = os.path.join(get_startup_folder(), STARTUP_FILE_NAME)
     return os.path.exists(target)
 
-def enable_startup(app_dir: str) -> bool:
+def enable_startup(app_dir: str = "") -> bool:
+    if not app_dir:
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     startup_dir = get_startup_folder()
     os.makedirs(startup_dir, exist_ok=True)
     target = os.path.join(startup_dir, STARTUP_FILE_NAME)
