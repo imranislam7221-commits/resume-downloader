@@ -1593,12 +1593,22 @@ def index():
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
-    return jsonify(config_manager.load_config())
+    cfg = config_manager.load_config()
+    email_val = cfg.get("email") or cfg.get("gmail_address", "")
+    cfg["email"] = email_val
+    cfg["gmail_address"] = email_val
+    cfg["telegram_bot_token"] = cfg.get("telegram_bot_token") or cfg.get("telegram_token", "")
+    return jsonify(cfg)
 
 @app.route("/api/config", methods=["POST"])
 def save_config_endpoint():
     try:
         data = request.json or {}
+        email_val = data.get("email") or data.get("gmail_address", "")
+        data["email"] = email_val
+        data["gmail_address"] = email_val
+        if "telegram_bot_token" in data:
+            data["telegram_token"] = data["telegram_bot_token"]
         config_manager.save_config(data)
         add_log("Configuration updated via recruitment hub.", "INFO")
         return jsonify({"success": True})
@@ -1636,7 +1646,7 @@ def test_toast_endpoint():
 @app.route("/api/test_telegram", methods=["POST"])
 def test_telegram_endpoint():
     cfg = config_manager.load_config()
-    tok = cfg.get("telegram_bot_token", "")
+    tok = cfg.get("telegram_bot_token") or cfg.get("telegram_token", "")
     cid = cfg.get("telegram_chat_id", "")
     ok, msg = send_telegram_alert(tok, cid, "🚀 *Resume Downloader Alert Test*\n\nYour recruitment alert system is active!")
     add_log(f"Dispatched test Telegram alert. Result: {msg}", "INFO" if ok else "WARNING")
@@ -1654,8 +1664,8 @@ def view_pdf_endpoint():
 @app.route("/api/test_connection", methods=["POST"])
 def test_connection_endpoint():
     cfg = config_manager.load_config()
-    email_addr = cfg.get("email", "").strip()
-    app_pwd = "".join(cfg.get("app_password", "").split())
+    email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+    app_pwd = "".join((cfg.get("app_password", "")).split())
     if not email_addr or not app_pwd:
         return jsonify({"success": False, "error": "Email and 16-character App Password are required."})
     try:
@@ -1792,8 +1802,8 @@ def start_monitoring():
     global email_watcher
     cfg = config_manager.load_config()
 
-    email_addr = cfg.get("email", "").strip()
-    app_pwd = "".join(cfg.get("app_password", "").split())
+    email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+    app_pwd = "".join((cfg.get("app_password", "")).split())
     base_dir = cfg.get("base_directory", "").strip()
 
     if not email_addr or not app_pwd or not base_dir:
@@ -1811,7 +1821,7 @@ def start_monitoring():
             create_subfolders=cfg.get("create_subfolders", True),
             prefix_applicant_name=cfg.get("prefix_applicant_name", True),
             enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
-            telegram_token=cfg.get("telegram_bot_token", ""),
+            telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
             telegram_chat_id=cfg.get("telegram_chat_id", ""),
             log_callback=add_log,
             poll_interval=10
