@@ -1,9 +1,14 @@
 {
     "gmail_address": "your.email@gmail.com",
     "app_password": "xxxx xxxx xxxx xxxx",
-    "base_directory": "D:\\Resumes",
+    "base_directory": "D:\\\\Resumes",
     "create_subfolders": true,
     "prefix_applicant_name": true,
+    "enable_desktop_toasts": true,
+    "telegram_token": "",
+    "telegram_chat_id": "",
+    "auto_start_monitoring": true,
+    "auto_start_with_windows": true,
     "poll_interval": 10,
     "companies": [
         {

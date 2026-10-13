@@ -3,3 +3,5 @@ imap-tools>=1.15.0
 pystray>=0.19.5
 Pillow>=10.0.0
 darkdetect>=0.8.0
+flask>=3.0.0
+winotify>=1.1.0
