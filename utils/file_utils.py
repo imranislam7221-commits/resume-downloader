@@ -3,7 +3,7 @@ import re
 import time
 from typing import Tuple
 
-ALLOWED_EXTENSIONS: Tuple[str, ...] = ('.pdf', '.docx', '.doc')
+ALLOWED_EXTENSIONS: Tuple[str, ...] = ('.pdf', '.docx', '.doc', '.rtf')
 
 def sanitize_folder_name(name: str) -> str:
     cleaned = re.sub(r'[\\/*?:"<>|]', '_', name).strip()

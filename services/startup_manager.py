@@ -2,7 +2,6 @@ import os
 import sys
 
 def get_startup_folder() -> str:
-    # Standard Windows Startup Folder
     appdata = os.environ.get("APPDATA", "")
     if appdata:
         return os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\Startup")
@@ -14,7 +13,11 @@ def is_startup_enabled() -> bool:
     target = os.path.join(get_startup_folder(), STARTUP_FILE_NAME)
     return os.path.exists(target)
 
-def enable_startup(app_dir: str) -> bool:
+def enable_startup(app_dir: str = "") -> bool:
+    if not app_dir:
+        # Default to project root directory
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     startup_dir = get_startup_folder()
     os.makedirs(startup_dir, exist_ok=True)
     target = os.path.join(startup_dir, STARTUP_FILE_NAME)

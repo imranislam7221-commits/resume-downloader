@@ -190,6 +190,9 @@ class ResumeDownloaderApp(ctk.CTk):
             companies=rules,
             create_subfolders=cfg.get("create_subfolders", True),
             prefix_applicant_name=cfg.get("prefix_applicant_name", True),
+            enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
+            telegram_token=cfg.get("telegram_token", ""),
+            telegram_chat_id=cfg.get("telegram_chat_id", ""),
             log_callback=lambda msg, lvl: self.after(0, lambda: self.log_console.log(msg, lvl)),
             on_error_callback=lambda err: self.after(0, self.stop_monitoring)
         )

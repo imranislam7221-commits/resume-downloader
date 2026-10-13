@@ -170,7 +170,7 @@ class EmailWatcher:
 
                     while not self.stop_event.is_set():
                         try:
-                            unread_messages = list(mailbox.fetch(AND(seen=False), limit=30, mark_seen=False, reverse=True))
+                            unread_messages = list(mailbox.fetch(AND(seen=False), limit=50, mark_seen=False, reverse=True))
 
                             if unread_messages:
                                 for msg in unread_messages:
@@ -207,6 +207,8 @@ class EmailWatcher:
 
                                         downloaded_this_email = 0
                                         for att in msg.attachments:
+                                            if not att.filename:
+                                                continue
                                             ext = os.path.splitext(att.filename)[1].lower()
                                             if ext in EXTENSIONS:
                                                 payload = att.payload

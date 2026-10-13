@@ -1,8 +1,9 @@
 import urllib.request
 import urllib.parse
 import json
+from typing import Tuple
 
-def send_windows_toast(title: str, message: str, icon_path: str = ""):
+def send_windows_toast(title: str, message: str, icon_path: str = "") -> bool:
     try:
         from winotify import Notification, audio
         toast = Notification(
@@ -19,9 +20,9 @@ def send_windows_toast(title: str, message: str, icon_path: str = ""):
         print(f"Windows Toast Warning: {e}")
         return False
 
-def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:
+def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> Tuple[bool, str]:
     if not bot_token or not chat_id:
-        return False
+        return False, "Bot token or Chat ID is missing."
     try:
         clean_token = bot_token.strip()
         clean_chat = chat_id.strip()
@@ -33,7 +34,9 @@ def send_telegram_alert(bot_token: str, chat_id: str, message: str) -> bool:
         }).encode("utf-8")
         req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=5) as resp:
-            return resp.status == 200
+            if resp.status == 200:
+                return True, "Telegram alert dispatched successfully."
+            return False, f"Telegram API returned status {resp.status}."
     except Exception as e:
         print(f"Telegram Notification Warning: {e}")
-        return False
+        return False, str(e)

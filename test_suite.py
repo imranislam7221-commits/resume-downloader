@@ -1,11 +1,17 @@
 import os
 import sys
 import unittest
+import pymupdf
+import docx
+
 from utils.file_utils import sanitize_folder_name, sanitize_filename, get_unique_filepath, ALLOWED_EXTENSIONS
 from utils.icon_generator import generate_fallback_icon
 from services.config_manager import ConfigManager
+from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
+from services.email_watcher import parse_applicant_info
+from web_server import read_resume_document, save_resume_document
 
-class TestResumeDownloader(unittest.TestCase):
+class ComprehensiveTestSuite(unittest.TestCase):
     def test_file_utils_sanitization(self):
         self.assertEqual(sanitize_folder_name("Google/HR?"), "Google_HR_")
         self.assertEqual(sanitize_folder_name(""), "Unnamed_Company")
@@ -15,28 +21,111 @@ class TestResumeDownloader(unittest.TestCase):
         self.assertIn(".pdf", ALLOWED_EXTENSIONS)
         self.assertIn(".docx", ALLOWED_EXTENSIONS)
         self.assertIn(".doc", ALLOWED_EXTENSIONS)
+        self.assertIn(".rtf", ALLOWED_EXTENSIONS)
         self.assertNotIn(".exe", ALLOWED_EXTENSIONS)
 
     def test_unique_filename(self):
         tmp_dir = os.path.dirname(os.path.abspath(__file__))
-        f1 = get_unique_filepath(tmp_dir, "test_file_never_exists_123.pdf")
-        self.assertTrue(f1.endswith("test_file_never_exists_123.pdf"))
+        f1 = get_unique_filepath(tmp_dir, "test_nonexistent_file_xyz.pdf")
+        self.assertTrue(f1.endswith("test_nonexistent_file_xyz.pdf"))
 
     def test_icon_generator(self):
         icon = generate_fallback_icon()
         self.assertEqual(icon.size, (64, 64))
         self.assertEqual(icon.mode, "RGBA")
 
-    def test_config_manager(self):
-        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_config.json")
+    def test_config_manager_normalization(self):
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_norm_config.json")
         cm = ConfigManager(cfg_path)
-        data = cm.load_config()
-        self.assertIn("companies", data)
-        self.assertTrue(cm.save_config({"test_key": "test_val"}))
+        # Test saving with gmail_address and loading with email
+        cm.save_config({"gmail_address": "recruiter@gmail.com", "telegram_token": "123:ABC"})
         loaded = cm.load_config()
-        self.assertEqual(loaded.get("test_key"), "test_val")
+        self.assertEqual(loaded.get("email"), "recruiter@gmail.com")
+        self.assertEqual(loaded.get("gmail_address"), "recruiter@gmail.com")
+        self.assertEqual(loaded.get("telegram_token"), "123:ABC")
+        self.assertEqual(loaded.get("telegram_bot_token"), "123:ABC")
         if os.path.exists(cfg_path):
             os.remove(cfg_path)
+
+    def test_applicant_info_parser(self):
+        name, addr = parse_applicant_info("Tanvir Hasan <tanvir.hasan@example.com>")
+        self.assertEqual(name, "Tanvir Hasan")
+        self.assertEqual(addr, "tanvir.hasan@example.com")
+
+        name2, addr2 = parse_applicant_info("simple@example.com")
+        self.assertEqual(name2, "Applicant")
+        self.assertEqual(addr2, "simple@example.com")
+
+    def test_document_editor_pdf(self):
+        tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_temp_docs")
+        os.makedirs(tmp_dir, exist_ok=True)
+        test_pdf = os.path.join(tmp_dir, "test_resume.pdf")
+
+        # Create dummy PDF
+        doc = pymupdf.open()
+        p = doc.new_page()
+        p.insert_text((50, 72), "Candidate Name: Pervez Mollik\nRole: Lead Developer", fontsize=12)
+        doc.save(test_pdf)
+        doc.close()
+
+        # Test read
+        read_res = read_resume_document(test_pdf)
+        self.assertTrue(read_res["success"])
+        self.assertEqual(read_res["format"], "PDF")
+        self.assertIn("Pervez Mollik", read_res["content"])
+
+        # Test save edited
+        save_res = save_resume_document(test_pdf, "Candidate Name: Pervez Mollik\nRole: Lead Developer\nStatus: Approved")
+        self.assertTrue(save_res["success"])
+
+        # Verify update
+        v_res = read_resume_document(test_pdf)
+        self.assertIn("Status: Approved", v_res["content"])
+
+        # Clean up
+        if os.path.exists(test_pdf):
+            os.remove(test_pdf)
+        if os.path.exists(tmp_dir):
+            os.rmdir(tmp_dir)
+
+    def test_document_editor_docx(self):
+        tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_temp_docx")
+        os.makedirs(tmp_dir, exist_ok=True)
+        test_docx = os.path.join(tmp_dir, "test_resume.docx")
+
+        # Create dummy DOCX
+        doc = docx.Document()
+        doc.add_paragraph("Applicant: Imran Islam")
+        doc.save(test_docx)
+
+        # Test read
+        read_res = read_resume_document(test_docx)
+        self.assertTrue(read_res["success"])
+        self.assertEqual(read_res["format"], "DOCX")
+        self.assertIn("Imran Islam", read_res["content"])
+
+        # Test save edited
+        save_res = save_resume_document(test_docx, "Applicant: Imran Islam\nRating: 5/5")
+        self.assertTrue(save_res["success"])
+
+        v_res = read_resume_document(test_docx)
+        self.assertIn("Rating: 5/5", v_res["content"])
+
+        # Clean up
+        if os.path.exists(test_docx):
+            os.remove(test_docx)
+        if os.path.exists(tmp_dir):
+            os.rmdir(tmp_dir)
+
+    def test_startup_manager_default_args(self):
+        # Test enable_startup with default no-argument call
+        success = enable_startup()
+        self.assertTrue(success)
+        self.assertTrue(is_startup_enabled())
+        # Disable
+        dis_success = disable_startup()
+        self.assertTrue(dis_success)
+        self.assertFalse(is_startup_enabled())
 
 if __name__ == "__main__":
     unittest.main()
