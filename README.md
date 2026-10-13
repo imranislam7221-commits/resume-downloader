@@ -24,7 +24,14 @@ A production-grade, autonomous Desktop & Web Recruitment Platform built with **P
 - **Export ZIP**: Download all resumes for any specific company (or all candidates) packaged into a `.zip` archive alongside a summary CSV with a single click.
 - **Export CSV**: Instant export of `resumes_manifest.csv` containing full applicant intake metadata.
 
-### 5. 👁️ In-Dashboard Fullscreen PDF Viewer
+### 5. ✏️ In-Dashboard Universal Resume Document Editor & Redactor
+- **Direct Editing from Browser**: Edit any downloaded resume directly inside the Web Dashboard regardless of whether it was downloaded as .pdf, .docx, .doc, .rtf, or .txt!
+- **Auto-Redact Contact Info**: 1-Click redaction of candidate phone numbers and email addresses before submitting CVs to clients.
+- **Find & Replace**: Quickly search and modify text inside the candidate document.
+- **Save to Local Disk**: Save changes directly overwriting the original file or as a clean new copy (_edited) on your local drive.
+- **Open in Desktop App**: 1-Click option to open directly in Microsoft Word or Adobe Acrobat for deep formatting.
+
+### 6. 👁️ In-Dashboard Fullscreen PDF Viewer
 - Read and evaluate candidate resumes directly in your browser with a single click on **"👁️ Preview"**.
 - No need to switch windows or open File Explorer!
 

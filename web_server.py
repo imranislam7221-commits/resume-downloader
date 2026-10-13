@@ -7,11 +7,14 @@ import time
 import io
 import zipfile
 import threading
+import hashlib
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from flask import Flask, jsonify, request, Response, send_file
 from imap_tools import MailBox
+import pymupdf
+import docx
 
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
@@ -77,7 +80,6 @@ def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_note
             status_idx = col_map.get("Status", -1)
             notes_idx = col_map.get("Notes", -1)
 
-            # Check if header needs status/notes columns appended
             if status_idx == -1:
                 header.append("Status")
                 status_idx = len(header) - 1
@@ -92,7 +94,6 @@ def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_note
                     row.append("")
                 row_path = row[path_idx] if path_idx < len(row) else ""
                 
-                # Check path match or filename match
                 norm_target = os.path.normcase(os.path.abspath(file_path))
                 norm_row = os.path.normcase(os.path.abspath(row_path)) if row_path else ""
                 if norm_target == norm_row or os.path.basename(file_path) == os.path.basename(row_path):
@@ -111,8 +112,121 @@ def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_note
         add_log(f"Error updating candidate status: {e}", "ERROR")
         return False
 
-# Load frontend HTML
-HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
+# Document reader & writer engine
+def read_resume_document(file_path: str):
+    if not os.path.exists(file_path):
+        return {"success": False, "error": "File does not exist."}
+    
+    ext = os.path.splitext(file_path)[1].lower()
+    text = ""
+    try:
+        if ext == ".docx":
+            doc = docx.Document(file_path)
+            paragraphs = [p.text for p in doc.paragraphs]
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = " | ".join([cell.text.strip() for cell in row.cells if cell.text.strip()])
+                    if row_text:
+                        paragraphs.append(row_text)
+            text = "\n".join(paragraphs)
+        elif ext == ".pdf":
+            doc = pymupdf.open(file_path)
+            pages_text = []
+            for page in doc:
+                pages_text.append(page.get_text())
+            doc.close()
+            text = "\n".join(pages_text).strip()
+        elif ext in [".txt", ".rtf"]:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    text = f.read()
+            except UnicodeDecodeError:
+                with open(file_path, "r", encoding="cp1252", errors="ignore") as f:
+                    text = f.read()
+        else:
+            return {"success": False, "error": f"Unsupported format '{ext}' for editing."}
+
+        size_kb = round(os.path.getsize(file_path) / 1024, 1)
+        return {
+            "success": True,
+            "filename": os.path.basename(file_path),
+            "file_path": file_path,
+            "format": ext.replace(".", "").upper(),
+            "size_kb": size_kb,
+            "content": text
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Could not read document: {str(e)}"}
+
+def save_resume_document(file_path: str, new_content: str, save_as_new: bool = False):
+    if not os.path.exists(file_path) and not save_as_new:
+        return {"success": False, "error": "Original file not found."}
+
+    ext = os.path.splitext(file_path)[1].lower()
+    target_path = file_path
+
+    if save_as_new:
+        base, extension = os.path.splitext(file_path)
+        counter = 1
+        target_path = f"{base}_edited{extension}"
+        while os.path.exists(target_path):
+            target_path = f"{base}_edited_{counter}{extension}"
+            counter += 1
+
+    try:
+        if ext == ".docx":
+            new_doc = docx.Document()
+            for line in new_content.split("\n"):
+                new_doc.add_paragraph(line)
+            new_doc.save(target_path)
+        elif ext == ".pdf":
+            doc = pymupdf.open()
+            margin = 50
+            page_width = 595
+            page_height = 842
+            lines = new_content.split("\n")
+            current_page = doc.new_page(width=page_width, height=page_height)
+            y = margin + 15
+            line_height = 14
+
+            for line in lines:
+                while len(line) > 95:
+                    chunk = line[:95]
+                    line = line[95:]
+                    if y > page_height - margin:
+                        current_page = doc.new_page(width=page_width, height=page_height)
+                        y = margin + 15
+                    current_page.insert_text((margin, y), chunk, fontsize=10.5, fontname="helv")
+                    y += line_height
+
+                if y > page_height - margin:
+                    current_page = doc.new_page(width=page_width, height=page_height)
+                    y = margin + 15
+                current_page.insert_text((margin, y), line, fontsize=10.5, fontname="helv")
+                y += line_height
+
+            doc.save(target_path)
+            doc.close()
+        else: # .txt, .rtf
+            with open(target_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+
+        size_kb = round(os.path.getsize(target_path) / 1024, 1)
+        with open(target_path, "rb") as f:
+            new_sha = hashlib.sha256(f.read()).hexdigest()
+
+        return {
+            "success": True,
+            "file_path": target_path,
+            "filename": os.path.basename(target_path),
+            "size_kb": size_kb,
+            "sha256": new_sha,
+            "is_new": save_as_new
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Failed to save document: {str(e)}"}
+
+HTML_ENTERPRISE_DASHBOARD = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -706,6 +820,23 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
             box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
         }
 
+        .btn-edit {
+            background: rgba(168, 85, 247, 0.15);
+            color: #c084fc;
+            border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 6px;
+            padding: 5px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-edit:hover {
+            background: #a855f7;
+            color: #ffffff;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
+        }
+
         /* Terminal Console */
         .terminal-card {
             background: #040711;
@@ -817,8 +948,9 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
             background: transparent;
             border: none;
             color: var(--text-muted);
-            font-size: 18px;
+            font-size: 20px;
             cursor: pointer;
+            padding: 2px 6px;
         }
         .btn-close:hover { color: #ffffff; }
 
@@ -855,6 +987,73 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
             border: none;
         }
 
+        /* Document Editor Modal */
+        .editor-modal-box {
+            background: #0b1120;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 16px;
+            width: 94vw;
+            height: 92vh;
+            max-width: 1400px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+        }
+        .editor-header {
+            background: #090e1c;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-card);
+        }
+        .editor-toolbar {
+            background: rgba(15, 23, 42, 0.95);
+            padding: 10px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-card);
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .editor-workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 16px 24px;
+            background: #040711;
+            position: relative;
+        }
+        .resume-textarea {
+            flex: 1;
+            width: 100%;
+            background: #060914;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            color: #f1f5f9;
+            font-family: 'JetBrains Mono', 'Segoe UI', monospace;
+            font-size: 13.5px;
+            line-height: 1.7;
+            padding: 18px 22px;
+            resize: none;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+        .resume-textarea:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.15);
+        }
+        .editor-footer {
+            background: #090e1c;
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-top: 1px solid var(--border-card);
+        }
+
         .toast-popup {
             position: fixed;
             bottom: 24px;
@@ -882,8 +1081,8 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
         <div class="brand-container">
             <div class="brand-icon">📂</div>
             <div>
-                <div class="brand-title">Resume Downloader & Gmail Auto-Sorter</div>
-                <div class="brand-subtitle">Autonomous Local Recruitment Engine</div>
+                <div class="brand-title">Resume Downloader & Recruitment Hub</div>
+                <div class="brand-subtitle">Autonomous Local Recruitment & Document Studio</div>
             </div>
         </div>
         <div class="header-controls">
@@ -1152,6 +1351,61 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- In-Dashboard Universal Resume Document Editor Modal -->
+    <div id="editorModal" class="modal-overlay">
+        <div class="editor-modal-box">
+            <div class="editor-header">
+                <div>
+                    <div style="font-size: 16px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 10px;">
+                        <span>✏️</span> In-Dashboard Resume Document Editor
+                        <span id="editorFormatBadge" class="company-pill" style="color: #a855f7; border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.1);">PDF</span>
+                    </div>
+                    <div id="editorMeta" style="font-size: 12px; color: var(--text-muted); margin-top: 2px;"></div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <button class="btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="openCurrentInDesktop()">
+                        <span>🖥️</span> Open in MS Word / Desktop
+                    </button>
+                    <button class="btn-close" onclick="closeEditorModal()">&times;</button>
+                </div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="editor-toolbar">
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <input type="text" id="findInput" class="form-input" style="padding: 6px 10px; font-size: 12px; width: 140px;" placeholder="Find text...">
+                    <input type="text" id="replaceInput" class="form-input" style="padding: 6px 10px; font-size: 12px; width: 140px;" placeholder="Replace with...">
+                    <button class="btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="doFindReplace()">Replace All</button>
+                    <button class="btn-secondary" style="padding: 6px 12px; font-size: 12px; border-color: rgba(244, 63, 94, 0.3); color: #fb7185;" onclick="autoRedactContactInfo()">
+                        <span>🛡️</span> Redact Phone & Email
+                    </button>
+                </div>
+                <div style="font-size: 12px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;" id="editorStats">
+                    Lines: 0 | Words: 0 | Characters: 0
+                </div>
+            </div>
+
+            <!-- Workspace -->
+            <div class="editor-workspace">
+                <textarea id="resumeContentArea" class="resume-textarea" placeholder="Loading document content..." oninput="updateEditorStats()"></textarea>
+            </div>
+
+            <!-- Footer -->
+            <div class="editor-footer">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); cursor: pointer;">
+                    <input type="checkbox" id="saveAsNewCheck" style="cursor: pointer;">
+                    <span>Save as new version copy (preserve original file)</span>
+                </label>
+                <div style="display: flex; gap: 12px;">
+                    <button class="btn-secondary" onclick="closeEditorModal()">Cancel</button>
+                    <button id="btnSaveDoc" class="btn-action btn-start" onclick="saveEditedDocument()">
+                        <span>💾 Save Changes to Local Disk</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Notification -->
     <div id="toastPopup" class="toast-popup"></div>
 
@@ -1159,6 +1413,7 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
         let allRecords = [];
         let isMonitoring = false;
         let currentNoteTarget = { filePath: '', status: '', notes: '' };
+        let currentEditTarget = { appName: '', company: '', filename: '', filePath: '', format: '' };
 
         function showToast(msg) {
             const t = document.getElementById('toastPopup');
@@ -1190,11 +1445,11 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
             try {
                 const res = await fetch('/api/config');
                 const cfg = await res.json();
-                document.getElementById('emailAddr').value = cfg.email || '';
+                document.getElementById('emailAddr').value = cfg.email || cfg.gmail_address || '';
                 document.getElementById('appPwd').value = cfg.app_password || '';
                 document.getElementById('baseDir').value = cfg.base_directory || '';
                 document.getElementById('enableToasts').checked = cfg.enable_desktop_toasts !== false;
-                document.getElementById('telegramToken').value = cfg.telegram_bot_token || '';
+                document.getElementById('telegramToken').value = cfg.telegram_bot_token || cfg.telegram_token || '';
                 document.getElementById('telegramChatId').value = cfg.telegram_chat_id || '';
 
                 renderRules(cfg.companies || []);
@@ -1463,8 +1718,9 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
                                 📝 ${hasNote ? escapeHtml(notes.substring(0, 14) + (notes.length > 14 ? '...' : '')) : 'Add Note'}
                             </button>
                         </td>
-                        <td style="text-align: center;">
+                        <td style="text-align: center; white-space: nowrap;">
                             <button class="btn-preview" onclick="previewPdf('${escapeJs(r['Applicant Name'])}', '${escapeJs(r.Company)}', '${escapeJs(r.Filename)}', '${escapeJs(r['File Path'])}')">👁️ Preview</button>
+                            <button class="btn-edit" style="margin-left: 4px;" onclick="openDocumentEditor('${escapeJs(r['Applicant Name'])}', '${escapeJs(r.Company)}', '${escapeJs(r.Filename)}', '${escapeJs(r['File Path'])}')">✏️ Edit</button>
                             <button class="btn-secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 4px;" onclick="openSpecificFile('${escapeJs(r['File Path'])}')">📂 Open</button>
                         </td>
                     </tr>
@@ -1544,6 +1800,116 @@ HTML_ENTERPRISE_DASHBOARD = """<!DOCTYPE html>
         function closePdfModal() {
             document.getElementById('pdfModal').classList.remove('active');
             document.getElementById('pdfIframe').src = 'about:blank';
+        }
+
+        /* In-Dashboard Universal Resume Document Editor Logic */
+        async function openDocumentEditor(appName, company, filename, filePath) {
+            currentEditTarget = { appName, company, filename, filePath, format: '' };
+            document.getElementById('editorMeta').innerText = `Candidate: ${appName} | File: ${filename} | Path: ${filePath}`;
+            document.getElementById('resumeContentArea').value = 'Loading document content from local disk...';
+            document.getElementById('saveAsNewCheck').checked = false;
+            document.getElementById('editorModal').classList.add('active');
+
+            try {
+                const res = await fetch(`/api/document/read?path=${encodeURIComponent(filePath)}`);
+                const data = await res.json();
+                if (data.success) {
+                    currentEditTarget.format = data.format;
+                    document.getElementById('editorFormatBadge').innerText = data.format;
+                    document.getElementById('resumeContentArea').value = data.content || '';
+                    updateEditorStats();
+                } else {
+                    alert('Could not read document: ' + data.error);
+                    closeEditorModal();
+                }
+            } catch (e) {
+                alert('Network error loading document: ' + e);
+                closeEditorModal();
+            }
+        }
+
+        function closeEditorModal() {
+            document.getElementById('editorModal').classList.remove('active');
+            document.getElementById('resumeContentArea').value = '';
+        }
+
+        function updateEditorStats() {
+            const val = document.getElementById('resumeContentArea').value;
+            const lines = val ? val.split('\n').length : 0;
+            const words = val.trim() ? val.trim().split(/\\s+/).length : 0;
+            const chars = val.length;
+            document.getElementById('editorStats').innerText = `Lines: ${lines} | Words: ${words} | Characters: ${chars}`;
+        }
+
+        function doFindReplace() {
+            const findText = document.getElementById('findInput').value;
+            const replaceText = document.getElementById('replaceInput').value;
+            if (!findText) {
+                alert('Please enter text to find.');
+                return;
+            }
+            const area = document.getElementById('resumeContentArea');
+            const regex = new RegExp(findText.split('').map(c => '\\'+c).join(''), 'g');
+            const count = (area.value.match(regex) || []).length;
+            area.value = area.value.replace(regex, replaceText);
+            updateEditorStats();
+            showToast(`Replaced ${count} occurrence(s)!`);
+        }
+
+        function autoRedactContactInfo() {
+            const area = document.getElementById('resumeContentArea');
+            let text = area.value;
+            text = text.replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL REDACTED]');
+            text = text.replace(/(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/g, '[PHONE REDACTED]');
+            text = text.replace(/(\+?8801|01)[3-9]\d{8}/g, '[PHONE REDACTED]');
+            area.value = text;
+            updateEditorStats();
+            showToast('🛡️ Contact phone & email redacted!');
+        }
+
+        async function openCurrentInDesktop() {
+            if (!currentEditTarget.filePath) return;
+            await fetch('/api/document/open_native', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_path: currentEditTarget.filePath })
+            });
+            showToast('Opened in desktop application!');
+        }
+
+        async function saveEditedDocument() {
+            const btn = document.getElementById('btnSaveDoc');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span>Saving...</span>';
+            btn.disabled = true;
+
+            const content = document.getElementById('resumeContentArea').value;
+            const saveAsNew = document.getElementById('saveAsNewCheck').checked;
+
+            try {
+                const res = await fetch('/api/document/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_path: currentEditTarget.filePath,
+                        content: content,
+                        save_as_new: saveAsNew
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message || 'Saved to local disk!');
+                    closeEditorModal();
+                    await fetchManifest();
+                } else {
+                    alert('Save error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Network error saving document: ' + e);
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
         }
 
         async function openBaseFolder() {
@@ -1661,6 +2027,37 @@ def view_pdf_endpoint():
         return Response("Only PDF documents can be previewed directly.", status=400)
     return send_file(file_path, mimetype="application/pdf")
 
+@app.route("/api/document/read", methods=["GET"])
+def read_doc_endpoint():
+    file_path = request.args.get("path", "")
+    res = read_resume_document(file_path)
+    return jsonify(res)
+
+@app.route("/api/document/save", methods=["POST"])
+def save_doc_endpoint():
+    data = request.json or {}
+    file_path = data.get("file_path", "")
+    content = data.get("content", "")
+    save_as_new = data.get("save_as_new", False)
+
+    res = save_resume_document(file_path, content, save_as_new)
+    if res.get("success"):
+        cfg = config_manager.load_config()
+        base_dir = cfg.get("base_directory", app_dir)
+        fname = res.get("filename")
+        add_log(f"Edited resume '{fname}' and saved changes to local disk.", "SUCCESS")
+    return jsonify(res)
+
+@app.route("/api/document/open_native", methods=["POST"])
+def open_native_endpoint():
+    data = request.json or {}
+    file_path = data.get("file_path", "")
+    if file_path and os.path.exists(file_path):
+        os.startfile(file_path)
+        add_log(f"Opened '{os.path.basename(file_path)}' in native desktop application.", "INFO")
+        return jsonify({"success": True})
+    return jsonify({"success": False, "error": "File not found."})
+
 @app.route("/api/test_connection", methods=["POST"])
 def test_connection_endpoint():
     cfg = config_manager.load_config()
@@ -1728,7 +2125,6 @@ def export_zip_endpoint():
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            # Summary CSV
             csv_str_io = io.StringIO()
             writer = csv.DictWriter(csv_str_io, fieldnames=MANIFEST_HEADERS)
             writer.writeheader()
@@ -1736,7 +2132,6 @@ def export_zip_endpoint():
                 writer.writerow(r)
             zip_file.writestr("resumes_manifest_summary.csv", csv_str_io.getvalue())
 
-            # Add actual files
             added_paths = set()
             for r in filtered_records:
                 fpath = r.get("File Path", "")
