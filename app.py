@@ -10,6 +10,7 @@ from utils.icon_generator import generate_fallback_icon
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
 from services.tray_service import TrayService
+from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
 
 from components.header import HeaderComponent
 from components.credentials import CredentialsComponent
@@ -24,7 +25,7 @@ CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ICON_FILE = os.path.join(APP_DIR, "icon.png")
 
 class ResumeDownloaderApp(ctk.CTk):
-    def __init__(self):
+    def __init__(self, start_minimized: bool = False):
         super().__init__()
 
         self.title("Resume Downloader & Gmail Auto-Sorter")
@@ -58,7 +59,17 @@ class ResumeDownloaderApp(ctk.CTk):
         # Intercept Close Window -> Minimize to Tray
         self.protocol("WM_DELETE_WINDOW", self.minimize_to_tray)
 
-        self.log_console.log("System initialized. Modular components loaded.", "INFO")
+        self.log_console.log("System initialized. Autonomous engine ready.", "INFO")
+
+        # Auto-start monitoring if configured and credentials exist
+        cfg = self.config_manager.load_config()
+        if cfg.get("auto_start_monitoring", True) and cfg.get("gmail_address") and cfg.get("app_password"):
+            self.after(1000, self.start_monitoring)
+            self.log_console.log("Auto-start monitoring activated.", "SUCCESS")
+
+        # Handle start minimized
+        if start_minimized:
+            self.after(100, self.withdraw)
 
     def init_app_icon(self) -> Image.Image:
         if os.path.exists(ICON_FILE):
@@ -122,7 +133,9 @@ class ResumeDownloaderApp(ctk.CTk):
     def auto_save_config(self):
         cred_data = self.credentials.get_data()
         rules = self.rules_table.get_rules()
+        existing = self.config_manager.load_config()
         data = {
+            **existing,
             **cred_data,
             "poll_interval": 10,
             "companies": rules
@@ -138,6 +151,7 @@ class ResumeDownloaderApp(ctk.CTk):
     def start_monitoring(self):
         cred = self.credentials.get_data()
         rules = self.rules_table.get_rules()
+        cfg = self.config_manager.load_config()
 
         if not cred["gmail_address"]:
             messagebox.showerror("Missing Input", "Please enter your Gmail address.")
@@ -174,11 +188,13 @@ class ResumeDownloaderApp(ctk.CTk):
             app_pwd=cred["app_password"],
             base_dir=cred["base_directory"],
             companies=rules,
+            create_subfolders=cfg.get("create_subfolders", True),
+            prefix_applicant_name=cfg.get("prefix_applicant_name", True),
             log_callback=lambda msg, lvl: self.after(0, lambda: self.log_console.log(msg, lvl)),
             on_error_callback=lambda err: self.after(0, self.stop_monitoring)
         )
         self.email_watcher.start()
-        self.log_console.log("Started background monitoring service.", "INFO")
+        self.log_console.log("Background monitoring loop active. Scanning inbox...", "INFO")
 
     def stop_monitoring(self):
         self.is_monitoring = False
@@ -220,5 +236,6 @@ class ResumeDownloaderApp(ctk.CTk):
         sys.exit(0)
 
 if __name__ == "__main__":
-    app = ResumeDownloaderApp()
+    start_min = "--minimized" in sys.argv
+    app = ResumeDownloaderApp(start_minimized=start_min)
     app.mainloop()

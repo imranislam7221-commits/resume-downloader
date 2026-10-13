@@ -12,6 +12,7 @@ sys.path.insert(0, app_dir)
 
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
+from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
 from utils.file_utils import sanitize_folder_name, sanitize_filename, ALLOWED_EXTENSIONS
 from imap_tools import MailBox
 from imap_tools.errors import MailboxLoginError
@@ -50,12 +51,12 @@ def get_manifest_records(base_dir: str) -> List[Dict[str, Any]]:
             pass
     return list(reversed(records))
 
-HTML_ULTIMATE = """<!DOCTYPE html>
+HTML_BOOT = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resume Downloader & Gmail Auto-Sorter | Pro Dashboard</title>
+    <title>Resume Downloader & Gmail Auto-Sorter | 24/7 Autonomous</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
@@ -75,12 +76,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             --surface-input: #090e1c;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Plus Jakarta Sans', sans-serif;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
 
         body {
             background-color: var(--bg-base);
@@ -94,10 +90,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             padding: 30px 20px;
         }
 
-        .container {
-            max-width: 1240px;
-            margin: 0 auto;
-        }
+        .container { max-width: 1240px; margin: 0 auto; }
 
         header {
             display: flex;
@@ -112,11 +105,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             margin-bottom: 26px;
         }
 
-        .logo-wrap {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
+        .logo-wrap { display: flex; align-items: center; gap: 16px; }
 
         .logo-icon {
             width: 52px;
@@ -139,18 +128,9 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             -webkit-text-fill-color: transparent;
         }
 
-        .logo-text p {
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-weight: 400;
-            margin-top: 2px;
-        }
+        .logo-text p { font-size: 13px; color: var(--text-secondary); font-weight: 400; margin-top: 2px; }
 
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
+        .header-actions { display: flex; align-items: center; gap: 14px; }
 
         .status-badge {
             display: flex;
@@ -165,11 +145,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             transition: all 0.3s ease;
         }
 
-        .status-idle {
-            background: rgba(148, 163, 184, 0.1);
-            color: #94a3b8;
-            border: 1px solid rgba(148, 163, 184, 0.25);
-        }
+        .status-idle { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.25); }
 
         .status-active {
             background: rgba(16, 185, 129, 0.16);
@@ -178,16 +154,9 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             box-shadow: 0 0 25px rgba(16, 185, 129, 0.25);
         }
 
-        .dot-indicator {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: currentColor;
-        }
+        .dot-indicator { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 
-        .status-active .dot-indicator {
-            animation: pulse-ring 1.8s infinite;
-        }
+        .status-active .dot-indicator { animation: pulse-ring 1.8s infinite; }
 
         @keyframes pulse-ring {
             0% { transform: scale(0.9); opacity: 0.8; }
@@ -195,12 +164,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             100% { transform: scale(0.9); opacity: 0.8; }
         }
 
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 18px;
-            margin-bottom: 26px;
-        }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; margin-bottom: 26px; }
 
         .stat-card {
             background: var(--bg-card);
@@ -213,31 +177,11 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             transition: transform 0.2s ease, border-color 0.2s ease;
         }
 
-        .stat-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255, 255, 255, 0.16);
-        }
+        .stat-card:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.16); }
 
-        .stat-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-        }
-
-        .stat-value {
-            font-size: 32px;
-            font-weight: 800;
-            color: var(--text-primary);
-            margin: 8px 0 2px;
-            letter-spacing: -1px;
-        }
-
-        .stat-sub {
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
+        .stat-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; }
+        .stat-value { font-size: 32px; font-weight: 800; color: var(--text-primary); margin: 8px 0 2px; letter-spacing: -1px; }
+        .stat-sub { font-size: 12px; color: var(--text-secondary); }
 
         .action-banner {
             background: var(--bg-card);
@@ -274,10 +218,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             box-shadow: 0 8px 25px rgba(16, 185, 129, 0.4);
         }
 
-        .btn-hero-start:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 30px rgba(16, 185, 129, 0.55);
-        }
+        .btn-hero-start:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(16, 185, 129, 0.55); }
 
         .btn-hero-stop {
             background: linear-gradient(135deg, #f43f5e, #e11d48);
@@ -285,17 +226,9 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             box-shadow: 0 8px 25px rgba(244, 63, 94, 0.4);
         }
 
-        .btn-hero-stop:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 12px 30px rgba(244, 63, 94, 0.55);
-        }
+        .btn-hero-stop:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(244, 63, 94, 0.55); }
 
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-            margin-bottom: 26px;
-        }
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 26px; }
 
         .card {
             background: var(--bg-card);
@@ -306,42 +239,14 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
         }
 
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .card-title { font-size: 16px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 10px; }
 
-        .card-title {
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        .form-group { margin-bottom: 16px; display: flex; flex-direction: column; gap: 8px; }
 
-        .form-group {
-            margin-bottom: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
+        label { font-size: 13px; font-weight: 600; color: var(--text-secondary); display: flex; justify-content: space-between; }
 
-        label {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .input-wrap {
-            position: relative;
-            display: flex;
-            align-items: center;
-        }
+        .input-wrap { position: relative; display: flex; align-items: center; }
 
         input[type="text"], input[type="password"] {
             width: 100%;
@@ -355,20 +260,9 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             transition: all 0.2s ease;
         }
 
-        input:focus {
-            border-color: var(--border-focus);
-            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
-        }
+        input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15); }
 
-        .btn-toggle-pwd {
-            position: absolute;
-            right: 12px;
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            font-size: 16px;
-        }
+        .btn-toggle-pwd { position: absolute; right: 12px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; }
 
         .toggle-row {
             display: flex;
@@ -384,13 +278,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
         .toggle-text h4 { font-size: 13px; font-weight: 600; }
         .toggle-text p { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
 
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 44px;
-            height: 24px;
-        }
-
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
         .switch input { opacity: 0; width: 0; height: 0; }
 
         .slider {
@@ -417,13 +305,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
         input:checked + .slider { background-color: var(--accent-emerald); }
         input:checked + .slider:before { transform: translateX(20px); }
 
-        .company-preset-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-bottom: 14px;
-        }
+        .company-preset-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
 
         .preset-badge {
             background: rgba(255, 255, 255, 0.05);
@@ -437,55 +319,16 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             transition: all 0.2s;
         }
 
-        .preset-badge:hover {
-            background: rgba(56, 189, 248, 0.15);
-            color: var(--accent-primary);
-            border-color: rgba(56, 189, 248, 0.3);
-        }
+        .preset-badge:hover { background: rgba(56, 189, 248, 0.15); color: var(--accent-primary); border-color: rgba(56, 189, 248, 0.3); }
 
-        .rules-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 8px;
-            margin-bottom: 12px;
-        }
+        .rules-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-bottom: 12px; }
+        .rules-table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 0 10px 4px; text-transform: uppercase; letter-spacing: 0.6px; }
 
-        .rules-table th {
-            text-align: left;
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--text-muted);
-            padding: 0 10px 4px;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-        }
+        .rule-row td { background: rgba(15, 23, 42, 0.55); border-top: 1px solid var(--border-card); border-bottom: 1px solid var(--border-card); padding: 6px 8px; }
+        .rule-row td:first-child { border-left: 1px solid var(--border-card); border-radius: 10px 0 0 10px; }
+        .rule-row td:last-child { border-right: 1px solid var(--border-card); border-radius: 0 10px 10px 0; text-align: center; width: 48px; }
 
-        .rule-row td {
-            background: rgba(15, 23, 42, 0.55);
-            border-top: 1px solid var(--border-card);
-            border-bottom: 1px solid var(--border-card);
-            padding: 6px 8px;
-        }
-
-        .rule-row td:first-child {
-            border-left: 1px solid var(--border-card);
-            border-radius: 10px 0 0 10px;
-        }
-
-        .rule-row td:last-child {
-            border-right: 1px solid var(--border-card);
-            border-radius: 0 10px 10px 0;
-            text-align: center;
-            width: 48px;
-        }
-
-        .rule-row input {
-            background: transparent !important;
-            border: none !important;
-            padding: 8px 10px !important;
-            color: var(--text-primary);
-            font-size: 13px;
-        }
+        .rule-row input { background: transparent !important; border: none !important; padding: 8px 10px !important; color: var(--text-primary); font-size: 13px; }
 
         .btn-delete-rule {
             background: rgba(244, 63, 94, 0.12);
@@ -498,10 +341,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             transition: all 0.2s;
         }
 
-        .btn-delete-rule:hover {
-            background: rgba(244, 63, 94, 0.25);
-            transform: scale(1.08);
-        }
+        .btn-delete-rule:hover { background: rgba(244, 63, 94, 0.25); transform: scale(1.08); }
 
         .btn-ghost {
             background: rgba(255, 255, 255, 0.05);
@@ -531,7 +371,6 @@ HTML_ULTIMATE = """<!DOCTYPE html>
 
         .btn-primary-small:hover { filter: brightness(1.15); }
 
-        /* Manifest / Downloaded Resumes Card */
         .manifest-card {
             background: var(--bg-card);
             border: 1px solid var(--border-card);
@@ -541,52 +380,15 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
         }
 
-        .manifest-toolbar {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
+        .manifest-toolbar { display: flex; gap: 12px; align-items: center; }
+        .search-input { width: 220px !important; padding: 8px 12px !important; font-size: 13px !important; }
 
-        .search-input {
-            width: 220px !important;
-            padding: 8px 12px !important;
-            font-size: 13px !important;
-        }
+        .manifest-table { width: 100%; border-collapse: separate; border-spacing: 0 8px; margin-top: 10px; }
+        .manifest-table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--text-muted); padding: 0 12px 6px; text-transform: uppercase; letter-spacing: 0.5px; }
 
-        .manifest-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 8px;
-            margin-top: 10px;
-        }
-
-        .manifest-table th {
-            text-align: left;
-            font-size: 11px;
-            font-weight: 700;
-            color: var(--text-muted);
-            padding: 0 12px 6px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .m-row td {
-            background: rgba(15, 23, 42, 0.6);
-            border-top: 1px solid var(--border-card);
-            border-bottom: 1px solid var(--border-card);
-            padding: 10px 12px;
-            font-size: 13px;
-        }
-
-        .m-row td:first-child {
-            border-left: 1px solid var(--border-card);
-            border-radius: 10px 0 0 10px;
-        }
-
-        .m-row td:last-child {
-            border-right: 1px solid var(--border-card);
-            border-radius: 0 10px 10px 0;
-        }
+        .m-row td { background: rgba(15, 23, 42, 0.6); border-top: 1px solid var(--border-card); border-bottom: 1px solid var(--border-card); padding: 10px 12px; font-size: 13px; }
+        .m-row td:first-child { border-left: 1px solid var(--border-card); border-radius: 10px 0 0 10px; }
+        .m-row td:last-child { border-right: 1px solid var(--border-card); border-radius: 0 10px 10px 0; }
 
         .company-pill {
             display: inline-block;
@@ -599,12 +401,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             font-weight: 700;
         }
 
-        .empty-placeholder {
-            text-align: center;
-            padding: 30px;
-            color: var(--text-muted);
-            font-size: 13px;
-        }
+        .empty-placeholder { text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px; }
 
         .terminal-card {
             background: #02050e;
@@ -623,61 +420,19 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             align-items: center;
         }
 
-        .traffic-lights {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
-
-        .traffic-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-        }
-
+        .traffic-lights { display: flex; gap: 8px; align-items: center; }
+        .traffic-dot { width: 10px; height: 10px; border-radius: 50%; }
         .td-red { background: #ef4444; }
         .td-yellow { background: #f59e0b; }
         .td-green { background: #10b981; }
 
-        .terminal-title {
-            font-size: 12.5px;
-            font-family: 'JetBrains Mono', monospace;
-            color: var(--text-muted);
-            font-weight: 500;
-        }
-
-        .terminal-actions {
-            display: flex;
-            gap: 12px;
-        }
-
-        .terminal-btn {
-            background: transparent;
-            border: none;
-            color: var(--text-muted);
-            font-size: 12px;
-            font-family: 'JetBrains Mono', monospace;
-            cursor: pointer;
-            transition: color 0.2s;
-        }
-
+        .terminal-title { font-size: 12.5px; font-family: 'JetBrains Mono', monospace; color: var(--text-muted); font-weight: 500; }
+        .terminal-actions { display: flex; gap: 12px; }
+        .terminal-btn { background: transparent; border: none; color: var(--text-muted); font-size: 12px; font-family: 'JetBrains Mono', monospace; cursor: pointer; transition: color 0.2s; }
         .terminal-btn:hover { color: var(--text-primary); }
 
-        .terminal-body {
-            height: 260px;
-            overflow-y: auto;
-            padding: 18px 22px;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12.5px;
-            line-height: 1.7;
-        }
-
-        .log-row {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 6px;
-        }
-
+        .terminal-body { height: 260px; overflow-y: auto; padding: 18px 22px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.7; }
+        .log-row { display: flex; gap: 12px; margin-bottom: 6px; }
         .lr-time { color: #475569; }
         .lr-level { font-weight: 700; width: 75px; }
         .lr-level.INFO { color: #38bdf8; }
@@ -706,10 +461,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             z-index: 999;
         }
 
-        #toast.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
+        #toast.show { opacity: 1; transform: translateY(0); }
 
         @media (max-width: 900px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -723,10 +475,10 @@ HTML_ULTIMATE = """<!DOCTYPE html>
     <div class="container">
         <header>
             <div class="logo-wrap">
-                <div class="logo-icon">📂</div>
+                <div class="logo-icon">⚡</div>
                 <div class="logo-text">
                     <h1>Resume Downloader & Gmail Auto-Sorter</h1>
-                    <p>Real-time applicant routing, smart naming & automated folder ingestion</p>
+                    <p>100% Autonomous 24/7 background ingestion & smart applicant routing</p>
                 </div>
             </div>
             <div class="header-actions">
@@ -762,8 +514,8 @@ HTML_ULTIMATE = """<!DOCTYPE html>
 
         <div class="action-banner">
             <div class="action-info">
-                <h3 id="heroTitle">Gmail Ingestion Engine Ready</h3>
-                <p id="heroSubtitle">Click Start to connect to Gmail and begin real-time applicant scanning & downloading</p>
+                <h3 id="heroTitle">Autonomous Ingestion Engine Ready</h3>
+                <p id="heroSubtitle">Keep your PC on — the app runs continuously in the background and auto-downloads resumes</p>
             </div>
             <button id="heroBtn" class="btn-hero btn-hero-start" onclick="toggleMonitoring()">
                 <span>▶ START MONITORING</span>
@@ -773,7 +525,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
         <div class="main-grid">
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">🔑 Credentials & Destination Path</div>
+                    <div class="card-title">🔑 Credentials & Auto-Run Settings</div>
                     <button class="btn-ghost" onclick="testConnection()">⚡ Test Connection</button>
                 </div>
 
@@ -796,6 +548,18 @@ HTML_ULTIMATE = """<!DOCTYPE html>
                 <div class="form-group">
                     <label>Base Download Directory (On Your PC)</label>
                     <input type="text" id="baseDirectory" placeholder="e.g. D:\\Resumes">
+                </div>
+
+                <!-- Windows Auto-Start Toggle -->
+                <div class="toggle-row" style="background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.3);">
+                    <div class="toggle-text">
+                        <h4 style="color: #38bdf8;">⚡ Auto-Start on Windows PC Boot</h4>
+                        <p>PC on holei app background-e automatic chalu hobe</p>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="windowsStartupToggle" onchange="toggleWindowsStartup()">
+                        <span class="slider"></span>
+                    </label>
                 </div>
 
                 <div class="toggle-row">
@@ -849,7 +613,6 @@ HTML_ULTIMATE = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- Downloaded Resumes Manifest Table -->
         <div class="manifest-card">
             <div class="card-header">
                 <div class="card-title">📁 Downloaded Resumes & Applicant Index</div>
@@ -930,6 +693,11 @@ HTML_ULTIMATE = """<!DOCTYPE html>
                     document.getElementById('prefixApplicantName').checked = data.prefix_applicant_name;
                 }
 
+                // Check Startup Status
+                const sRes = await fetch('/api/startup/status');
+                const sData = await sRes.json();
+                document.getElementById('windowsStartupToggle').checked = sData.enabled;
+
                 const tbody = document.getElementById('rulesBody');
                 tbody.innerHTML = '';
                 if (data.companies && data.companies.length > 0) {
@@ -983,6 +751,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
                 base_directory: document.getElementById('baseDirectory').value.trim(),
                 create_subfolders: document.getElementById('createSubfolders').checked,
                 prefix_applicant_name: document.getElementById('prefixApplicantName').checked,
+                auto_start_monitoring: true,
                 companies: getRules()
             };
             await fetch('/api/config', {
@@ -994,6 +763,19 @@ HTML_ULTIMATE = """<!DOCTYPE html>
                 showToast('Settings Saved Successfully');
             }
             updateStatsCards();
+        }
+
+        async function toggleWindowsStartup() {
+            const enabled = document.getElementById('windowsStartupToggle').checked;
+            const res = await fetch('/api/startup/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enable: enabled })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(enabled ? '✅ Enabled: Will run automatically on PC boot' : 'Disabled from PC boot');
+            }
         }
 
         async function testConnection() {
@@ -1118,8 +900,8 @@ HTML_ULTIMATE = """<!DOCTYPE html>
                     statusText.innerText = 'IDLE / STOPPED';
                     heroBtn.className = 'btn-hero btn-hero-start';
                     heroBtn.innerHTML = '<span>▶ START MONITORING</span>';
-                    heroTitle.innerText = 'Gmail Ingestion Engine Ready';
-                    heroSubtitle.innerText = 'Click Start to connect to Gmail and begin real-time applicant scanning & downloading';
+                    heroTitle.innerText = 'Autonomous Ingestion Engine Ready';
+                    heroSubtitle.innerText = 'Keep your PC on — the app runs continuously in the background and auto-downloads resumes';
                 }
 
                 if (data.stats) {
@@ -1181,7 +963,7 @@ HTML_ULTIMATE = """<!DOCTYPE html>
 
 @app.route("/")
 def index():
-    return render_template_string(HTML_ULTIMATE)
+    return render_template_string(HTML_BOOT)
 
 @app.route("/api/config", methods=["GET"])
 def get_config():
@@ -1193,6 +975,20 @@ def save_config_endpoint():
     data = request.json or {}
     config_manager.save_config(data)
     return jsonify({"status": "ok"})
+
+@app.route("/api/startup/status", methods=["GET"])
+def startup_status():
+    return jsonify({"enabled": is_startup_enabled()})
+
+@app.route("/api/startup/toggle", methods=["POST"])
+def startup_toggle():
+    data = request.json or {}
+    enable = data.get("enable", True)
+    if enable:
+        res = enable_startup(app_dir)
+    else:
+        res = disable_startup()
+    return jsonify({"success": res, "enabled": is_startup_enabled()})
 
 @app.route("/api/test_connection", methods=["POST"])
 def test_connection_endpoint():
@@ -1221,7 +1017,6 @@ def export_manifest():
     manifest_path = os.path.join(base_dir, "resumes_manifest.csv")
     if os.path.exists(manifest_path):
         return send_file(manifest_path, as_attachment=True, download_name="resumes_manifest.csv")
-    # Return empty csv
     return Response("Downloaded At,Company,Applicant Name,Applicant Email,Email Subject,Filename,File Size (KB),File Path\\n",
                     mimetype="text/csv",
                     headers={"Content-disposition": "attachment; filename=resumes_manifest.csv"})
@@ -1310,7 +1105,7 @@ def start_monitoring():
     )
     active_watcher.start()
     is_monitoring = True
-    add_log("Resume Downloader Engine started. Real-time applicant ingestion active.", "INFO")
+    add_log("Autonomous Resume Downloader Engine started. Listening for incoming applicants...", "INFO")
     return jsonify({"status": "started"})
 
 def stop_monitoring_internal():
@@ -1334,5 +1129,5 @@ def clear_logs():
     return jsonify({"status": "cleared"})
 
 if __name__ == "__main__":
-    print("Serving Pro Resume Downloader Dashboard at http://127.0.0.1:5000")
+    print("Serving Autonomous Resume Downloader Dashboard at http://127.0.0.1:5000")
     app.run(host="0.0.0.0", port=5000, debug=False)

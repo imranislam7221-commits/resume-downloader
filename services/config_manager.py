@@ -11,6 +11,10 @@ class ConfigManager:
             "gmail_address": "",
             "app_password": "",
             "base_directory": os.path.dirname(os.path.abspath(self.config_path)),
+            "create_subfolders": True,
+            "prefix_applicant_name": True,
+            "auto_start_monitoring": True,
+            "auto_start_with_windows": True,
             "poll_interval": 10,
             "companies": [
                 {"name": "Google", "keyword": "google"},
