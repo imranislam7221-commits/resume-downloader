@@ -40,23 +40,33 @@ def parse_applicant_info(from_header: str):
 class EmailWatcher:
     def __init__(
         self,
-        email_addr: str,
-        app_pwd: str,
-        base_dir: str,
-        companies: List[Dict[str, str]],
+        email_addr: str = "",
+        app_pwd: str = "",
+        accounts: Optional[List[Dict[str, str]]] = None,
+        base_dir: str = "",
+        companies: Optional[List[Dict[str, str]]] = None,
         create_subfolders: bool = True,
         prefix_applicant_name: bool = True,
         enable_desktop_toasts: bool = True,
         telegram_token: str = "",
         telegram_chat_id: str = "",
-        log_callback: Callable[[str, str], None] = None,
+        log_callback: Optional[Callable[[str, str], None]] = None,
         on_error_callback: Optional[Callable[[str], None]] = None,
         poll_interval: int = 10
     ):
-        self.email_addr = email_addr.strip()
-        self.app_pwd = "".join(app_pwd.split())
+        raw_accounts = accounts if (accounts and isinstance(accounts, list)) else []
+        self.accounts = [
+            {"email": a.get("email", "").strip(), "app_password": "".join((a.get("app_password", "")).split())}
+            for a in raw_accounts
+            if a.get("email") and a.get("app_password")
+        ]
+        if not self.accounts and email_addr and app_pwd:
+            self.accounts = [{"email": email_addr.strip(), "app_password": "".join(app_pwd.split())}]
+
+        self.email_addr = self.accounts[0]["email"] if self.accounts else (email_addr.strip() if email_addr else "")
+        self.app_pwd = self.accounts[0]["app_password"] if self.accounts else ("".join(app_pwd.split()) if app_pwd else "")
         self.base_dir = base_dir.strip()
-        self.companies = companies
+        self.companies = companies or []
         self.create_subfolders = create_subfolders
         self.prefix_applicant_name = prefix_applicant_name
         self.enable_desktop_toasts = enable_desktop_toasts
@@ -68,8 +78,11 @@ class EmailWatcher:
         self.stop_event = threading.Event()
         self.scan_now_event = threading.Event()
         self.thread: Optional[threading.Thread] = None
+        self.worker_threads: List[threading.Thread] = []
         self.inspected_uids: Set[str] = set()
         self.known_hashes: Set[str] = set()
+        self.hash_lock = threading.Lock()
+        self.manifest_lock = threading.Lock()
         self.duplicates_prevented = 0
         self._load_existing_hashes()
 
@@ -83,7 +96,8 @@ class EmailWatcher:
                     for row in reader:
                         sha = row.get("SHA256", "").strip()
                         if sha:
-                            self.known_hashes.add(sha)
+                            with self.hash_lock:
+                                self.known_hashes.add(sha)
             except Exception as e:
                 self.log(f"Notice: Could not index existing resume hashes: {e}", "WARNING")
 
@@ -98,10 +112,14 @@ class EmailWatcher:
         self.scan_now_event.set()
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
+        for w in self.worker_threads:
+            if w.is_alive():
+                w.join(timeout=2.0)
 
     def trigger_scan_now(self):
-        """Wake up watcher immediately to scan inbox without waiting for interval."""
+        """Wake up all account worker threads immediately to scan inboxes without waiting."""
         self.scan_now_event.set()
+        threading.Timer(0.5, self.scan_now_event.clear).start()
 
     def _record_manifest(
         self,
@@ -116,38 +134,39 @@ class EmailWatcher:
         status: str = "New",
         notes: str = ""
     ):
-        try:
-            os.makedirs(self.base_dir, exist_ok=True)
-            manifest_file = os.path.join(self.base_dir, "resumes_manifest.csv")
-            needs_header = not os.path.exists(manifest_file)
-            
-            # If manifest exists but with old header format, migrate it seamlessly
-            if os.path.exists(manifest_file):
-                with open(manifest_file, "r", encoding="utf-8") as f:
-                    first_line = f.readline()
-                if "SHA256" not in first_line:
-                    self._migrate_manifest_file(manifest_file)
-                    needs_header = False
+        with self.manifest_lock:
+            try:
+                os.makedirs(self.base_dir, exist_ok=True)
+                manifest_file = os.path.join(self.base_dir, "resumes_manifest.csv")
+                needs_header = not os.path.exists(manifest_file)
+                
+                # If manifest exists but with old header format, migrate it seamlessly
+                if os.path.exists(manifest_file):
+                    with open(manifest_file, "r", encoding="utf-8") as f:
+                        first_line = f.readline()
+                    if "SHA256" not in first_line:
+                        self._migrate_manifest_file(manifest_file)
+                        needs_header = False
 
-            with open(manifest_file, "a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if needs_header:
-                    writer.writerow(MANIFEST_HEADERS)
-                writer.writerow([
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    company,
-                    app_name,
-                    app_email,
-                    subject,
-                    fname,
-                    size_kb,
-                    full_path,
-                    sha256_hash,
-                    status,
-                    notes
-                ])
-        except Exception as e:
-            self.log(f"Notice: Could not write to resumes_manifest.csv: {e}", "WARNING")
+                with open(manifest_file, "a", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    if needs_header:
+                        writer.writerow(MANIFEST_HEADERS)
+                    writer.writerow([
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        company,
+                        app_name,
+                        app_email,
+                        subject,
+                        fname,
+                        size_kb,
+                        full_path,
+                        sha256_hash,
+                        status,
+                        notes
+                    ])
+            except Exception as e:
+                self.log(f"Notice: Could not write to resumes_manifest.csv: {e}", "WARNING")
 
     def _migrate_manifest_file(self, manifest_file: str):
         """Migrate legacy CSV without breaking previous candidate history."""
@@ -181,12 +200,39 @@ class EmailWatcher:
                 self.on_error(msg)
             return
 
-        self.log(f"Connecting securely to imap.gmail.com:993 for account: {self.email_addr}...", "INFO")
+        if not self.accounts:
+            self.log("No valid Gmail accounts configured for monitoring.", "ERROR")
+            return
+
+        acc_count = len(self.accounts)
+        self.log(f"⚡ Multi-Account Monitoring Engine active for {acc_count} Gmail account(s).", "SUCCESS")
+
+        if acc_count == 1:
+            acc = self.accounts[0]
+            self._monitor_account(acc["email"], acc["app_password"])
+        else:
+            self.worker_threads = []
+            for acc in self.accounts:
+                t = threading.Thread(
+                    target=self._monitor_account,
+                    args=(acc["email"], acc["app_password"]),
+                    daemon=True,
+                    name=f"Worker-{acc['email']}"
+                )
+                self.worker_threads.append(t)
+                t.start()
+
+            for t in self.worker_threads:
+                t.join()
+
+    def _monitor_account(self, email_addr: str, app_pwd: str):
+        tag = f"[{email_addr}]" if len(self.accounts) > 1 else ""
+        self.log(f"{tag} Connecting securely to imap.gmail.com:993...", "INFO")
 
         while not self.stop_event.is_set():
             try:
-                with MailBox("imap.gmail.com").login(self.email_addr, self.app_pwd) as mailbox:
-                    self.log("Authenticated with Gmail IMAP. Actively listening for applicant emails...", "SUCCESS")
+                with MailBox("imap.gmail.com").login(email_addr, app_pwd) as mailbox:
+                    self.log(f"{tag} Authenticated with Gmail IMAP. Actively listening for applicant emails...", "SUCCESS")
 
                     while not self.stop_event.is_set():
                         try:
@@ -214,7 +260,7 @@ class EmailWatcher:
 
                                     if matched_company:
                                         self.log(
-                                            f"Applicant identified for '{matched_company}'! Name: '{applicant_name}' | Email: '{applicant_email}'",
+                                            f"{tag} Applicant identified for '{matched_company}'! Name: '{applicant_name}' | Email: '{applicant_email}'",
                                             "INFO"
                                         )
 
@@ -236,18 +282,22 @@ class EmailWatcher:
                                                 
                                                 # Reject empty (0-byte) or abnormally large (> 30MB) files
                                                 if payload_len < 512:
-                                                    self.log(f"Skipped corrupt/empty attachment '{att.filename}' (<512 bytes).", "WARNING")
+                                                    self.log(f"{tag} Skipped corrupt/empty attachment '{att.filename}' (<512 bytes).", "WARNING")
                                                     continue
                                                 if payload_len > 30 * 1024 * 1024:
-                                                    self.log(f"Skipped oversize attachment '{att.filename}' (>30 MB).", "WARNING")
+                                                    self.log(f"{tag} Skipped oversize attachment '{att.filename}' (>30 MB).", "WARNING")
                                                     continue
 
-                                                # Calculate SHA-256 checksum for professional deduplication
+                                                # Calculate SHA-256 checksum for professional deduplication across accounts
                                                 file_sha = hashlib.sha256(payload).hexdigest()
-                                                if file_sha in self.known_hashes:
-                                                    self.duplicates_prevented += 1
+                                                with self.hash_lock:
+                                                    is_dup = file_sha in self.known_hashes
+                                                    if is_dup:
+                                                        self.duplicates_prevented += 1
+
+                                                if is_dup:
                                                     self.log(
-                                                        f"⚡ [DEDUPLICATION] Skipped duplicate resume '{att.filename}' from {applicant_name} (SHA-256 matched an already downloaded CV).",
+                                                        f"{tag} ⚡ [DEDUPLICATION] Skipped duplicate resume '{att.filename}' from {applicant_name} (SHA-256 matched an already downloaded CV).",
                                                         "WARNING"
                                                     )
                                                     continue
@@ -268,7 +318,9 @@ class EmailWatcher:
                                                 with open(save_path, "wb") as f:
                                                     f.write(payload)
 
-                                                self.known_hashes.add(file_sha)
+                                                with self.hash_lock:
+                                                    self.known_hashes.add(file_sha)
+
                                                 size_kb = round(payload_len / 1024, 1)
 
                                                 self._record_manifest(
@@ -281,12 +333,12 @@ class EmailWatcher:
                                                     full_path=save_path,
                                                     sha256_hash=file_sha,
                                                     status="New",
-                                                    notes=""
+                                                    notes=f"Downloaded via {email_addr}"
                                                 )
 
                                                 downloaded_this_email += 1
                                                 folder_lbl = f"{matched_company}/" if self.create_subfolders else "Selected Directory/"
-                                                self.log(f"Saved resume: '{final_fname}' ({size_kb} KB) -> [{folder_lbl}]", "SUCCESS")
+                                                self.log(f"{tag} Saved resume: '{final_fname}' ({size_kb} KB) -> [{folder_lbl}]", "SUCCESS")
 
                                                 # 1. Trigger Windows Desktop Toast Notification
                                                 if self.enable_desktop_toasts:
@@ -302,37 +354,37 @@ class EmailWatcher:
                                                         f"🏢 *Company:* `{matched_company}`\n"
                                                         f"👤 *Applicant:* {applicant_name}\n"
                                                         f"✉️ *Email:* `{applicant_email}`\n"
+                                                        f"📥 *Account:* `{email_addr}`\n"
                                                         f"📁 *Saved As:* `{final_fname}` ({size_kb} KB)"
                                                     )
                                                     send_telegram_alert(self.telegram_token, self.telegram_chat_id, tele_msg)
 
                                         if downloaded_this_email > 0:
-                                            self.log(f"Extracted {downloaded_this_email} resume file(s) for '{matched_company}'.", "SUCCESS")
+                                            self.log(f"{tag} Extracted {downloaded_this_email} resume file(s) for '{matched_company}'.", "SUCCESS")
                                         else:
-                                            self.log(f"Email matched '{matched_company}', but no new attached resume (.pdf/.docx/.doc) found.", "WARNING")
+                                            self.log(f"{tag} Email matched '{matched_company}', but no new attached resume (.pdf/.docx/.doc) found.", "WARNING")
 
                                         try:
                                             mailbox.flag(msg.uid, MailMessageFlags.SEEN, True)
-                                            self.log(f"Email marked as read on Gmail (UID {msg.uid}).", "INFO")
+                                            self.log(f"{tag} Email marked as read on Gmail (UID {msg.uid}).", "INFO")
                                         except Exception as flag_err:
-                                            self.log(f"Notice: Could not flag email {msg.uid} as read: {flag_err}", "WARNING")
+                                            self.log(f"{tag} Notice: Could not flag email {msg.uid} as read: {flag_err}", "WARNING")
 
                                     self.inspected_uids.add(msg.uid)
                                     if len(self.inspected_uids) > 10000:
                                         self.inspected_uids = set(list(self.inspected_uids)[-5000:])
 
                         except ImapToolsError as fetch_err:
-                            self.log(f"IMAP Fetch Warning: {fetch_err}", "WARNING")
+                            self.log(f"{tag} IMAP Fetch Warning: {fetch_err}", "WARNING")
                         except Exception as inner_err:
-                            self.log(f"Inbox parsing warning: {inner_err}", "WARNING")
+                            self.log(f"{tag} Inbox parsing warning: {inner_err}", "WARNING")
 
                         # Wait for poll_interval OR scan_now trigger
                         if self.scan_now_event.wait(timeout=self.poll_interval):
-                            self.scan_now_event.clear()
-                            self.log("⚡ Instant scan triggered! Checking inbox right now...", "INFO")
+                            self.log(f"{tag} ⚡ Instant scan triggered! Checking inbox right now...", "INFO")
 
             except MailboxLoginError as login_err:
-                msg = f"Gmail Authentication Failed: {login_err}. Please ensure 2-Step Verification is active and use a 16-character App Password."
+                msg = f"{tag} Gmail Authentication Failed: {login_err}. Please ensure 2-Step Verification is active and use a 16-character App Password."
                 self.log(msg, "ERROR")
                 if self.on_error:
                     self.on_error(msg)
@@ -340,8 +392,8 @@ class EmailWatcher:
             except Exception as conn_err:
                 if self.stop_event.is_set():
                     break
-                self.log(f"Connection dropped: {conn_err}. Reconnecting in 10s...", "WARNING")
+                self.log(f"{tag} Connection dropped: {conn_err}. Reconnecting in 10s...", "WARNING")
                 if self.stop_event.wait(timeout=10):
                     break
 
-        self.log("Background email monitoring thread terminated cleanly.", "INFO")
+        self.log(f"{tag} Background email monitoring worker terminated.", "INFO")

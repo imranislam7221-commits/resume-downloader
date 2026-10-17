@@ -18,3 +18,4 @@ app_stdout.log
 Thumbs.db
 Desktop.ini
 .DS_Store
+.vscode/

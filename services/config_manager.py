@@ -11,6 +11,7 @@ class ConfigManager:
             "email": "",
             "gmail_address": "",
             "app_password": "",
+            "accounts": [],
             "base_directory": os.path.dirname(os.path.abspath(self.config_path)),
             "create_subfolders": True,
             "prefix_applicant_name": True,
@@ -37,10 +38,26 @@ class ConfigManager:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             
-            # Synchronize email keys
-            email_val = data.get("email") or data.get("gmail_address", "")
-            data["email"] = email_val
-            data["gmail_address"] = email_val
+            # Synchronize accounts list and single email/pwd fields
+            accounts = data.get("accounts")
+            if not isinstance(accounts, list):
+                accounts = []
+
+            email_val = (data.get("email") or data.get("gmail_address", "")).strip()
+            pwd_val = (data.get("app_password", "")).strip()
+
+            if not accounts and (email_val or pwd_val):
+                accounts = [{"email": email_val, "app_password": pwd_val}]
+
+            data["accounts"] = accounts
+            if accounts and isinstance(accounts[0], dict):
+                data["email"] = accounts[0].get("email", "")
+                data["gmail_address"] = accounts[0].get("email", "")
+                data["app_password"] = accounts[0].get("app_password", "")
+            else:
+                data["email"] = email_val
+                data["gmail_address"] = email_val
+                data["app_password"] = pwd_val
 
             # Synchronize telegram token keys
             tele_tok = data.get("telegram_token") or data.get("telegram_bot_token", "")
@@ -56,10 +73,18 @@ class ConfigManager:
 
     def save_config(self, data: Dict[str, Any]) -> bool:
         try:
-            # Synchronize email and telegram fields before writing
-            email_val = data.get("email") or data.get("gmail_address", "")
-            data["email"] = email_val
-            data["gmail_address"] = email_val
+            # Synchronize accounts and top-level fields
+            accounts = data.get("accounts")
+            if isinstance(accounts, list) and accounts and isinstance(accounts[0], dict):
+                data["email"] = accounts[0].get("email", "")
+                data["gmail_address"] = accounts[0].get("email", "")
+                data["app_password"] = accounts[0].get("app_password", "")
+            else:
+                email_val = (data.get("email") or data.get("gmail_address", "")).strip()
+                data["email"] = email_val
+                data["gmail_address"] = email_val
+                if email_val or data.get("app_password"):
+                    data["accounts"] = [{"email": email_val, "app_password": data.get("app_password", "")}]
 
             tele_tok = data.get("telegram_token") or data.get("telegram_bot_token", "")
             data["telegram_token"] = tele_tok

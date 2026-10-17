@@ -23,6 +23,81 @@ ctk.set_default_color_theme("blue")
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ICON_FILE = os.path.join(APP_DIR, "icon.png")
+MASTER_PASSWORD = os.environ.get("RESUMEFLOW_MASTER_PASSWORD", "Parvez7221")
+
+class MasterPasswordDialog(ctk.CTkToplevel):
+    def __init__(self, parent, on_success):
+        super().__init__(parent)
+        self.title("ResumeFlow Pro Security")
+        self.geometry("380x250")
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
+        self.on_success = on_success
+        self.protocol("WM_DELETE_WINDOW", self.on_cancel)
+        self.configure(fg_color="#0b0f19")
+
+        title_label = ctk.CTkLabel(
+            self,
+            text="🔒 ResumeFlow Pro Lock",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#f8fafc"
+        )
+        title_label.pack(pady=(22, 6))
+
+        sub_label = ctk.CTkLabel(
+            self,
+            text="Enter Master Password to access workspace:",
+            font=ctk.CTkFont(size=12),
+            text_color="#94a3b8"
+        )
+        sub_label.pack(pady=(0, 14))
+
+        self.entry_pwd = ctk.CTkEntry(
+            self,
+            placeholder_text="Enter password...",
+            show="*",
+            width=280,
+            height=38,
+            font=ctk.CTkFont(size=13)
+        )
+        self.entry_pwd.pack(pady=(0, 8))
+        self.entry_pwd.focus()
+        self.entry_pwd.bind("<Return>", lambda e: self.check_password())
+
+        self.error_label = ctk.CTkLabel(
+            self,
+            text="",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#f43f5e"
+        )
+        self.error_label.pack(pady=(0, 10))
+
+        btn_unlock = ctk.CTkButton(
+            self,
+            text="Unlock Workspace",
+            command=self.check_password,
+            width=280,
+            height=38,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            font=ctk.CTkFont(size=13, weight="bold")
+        )
+        btn_unlock.pack()
+
+    def check_password(self):
+        val = self.entry_pwd.get().strip()
+        if val == MASTER_PASSWORD:
+            self.destroy()
+            self.on_success()
+        else:
+            self.error_label.configure(text="Incorrect master password. Access denied.")
+            self.entry_pwd.delete(0, "end")
+
+    def on_cancel(self):
+        self.destroy()
+        if not getattr(self.master, "is_authenticated", False):
+            if not getattr(self.master, "is_monitoring", False):
+                sys.exit(0)
 
 class ResumeDownloaderApp(ctk.CTk):
     def __init__(self, start_minimized: bool = False):
@@ -31,6 +106,8 @@ class ResumeDownloaderApp(ctk.CTk):
         self.title("ResumeFlow Pro | Autonomous Gmail Ingestion & Applicant Sorter")
         self.geometry("980x800")
         self.minsize(900, 700)
+
+        self.is_authenticated = False
 
         # Core Services
         self.config_manager = ConfigManager(CONFIG_FILE)
@@ -67,9 +144,12 @@ class ResumeDownloaderApp(ctk.CTk):
             self.after(1000, self.start_monitoring)
             self.log_console.log("Auto-start monitoring activated.", "SUCCESS")
 
-        # Handle start minimized
+        # Handle master password check and minimized startup
         if start_minimized:
             self.after(100, self.withdraw)
+        else:
+            self.withdraw()
+            self.after(150, self.prompt_master_password)
 
     def init_app_icon(self) -> Image.Image:
         if os.path.exists(ICON_FILE):
@@ -187,6 +267,7 @@ class ResumeDownloaderApp(ctk.CTk):
         self.email_watcher = EmailWatcher(
             email_addr=cred["gmail_address"],
             app_pwd=cred["app_password"],
+            accounts=cfg.get("accounts", []),
             base_dir=cred["base_directory"],
             companies=rules,
             create_subfolders=cfg.get("create_subfolders", True),
@@ -224,7 +305,20 @@ class ResumeDownloaderApp(ctk.CTk):
     def restore_from_tray(self):
         self.after(0, self._restore_main_window)
 
+    def prompt_master_password(self):
+        MasterPasswordDialog(self, on_success=self._on_password_success)
+
+    def _on_password_success(self):
+        self.is_authenticated = True
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+        self.log_console.log("Master password verified. Workspace unlocked.", "SUCCESS")
+
     def _restore_main_window(self):
+        if not self.is_authenticated:
+            self.prompt_master_password()
+            return
         self.deiconify()
         self.lift()
         self.focus_force()

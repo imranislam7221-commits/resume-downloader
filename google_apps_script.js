@@ -11,19 +11,25 @@
  */
 
 // কনফিগারেশন
-const FOLDER_NAME = "Resumes_Downloaded";         // যে গুগল ড্রাইভ ফোল্ডারে ফাইল সেভ হবে
+// টিপস: ৩টি বা একাধিক জিমেইল থাকলে ড্রাইভ ফোল্ডারটি বাকি জিমেইলের সাথে শেয়ার করে ফোল্ডার ID-টি নিচে বসান।
+const SHARED_FOLDER_ID = "";                      // অপশনাল: শেয়ার্ড গুগল ড্রাইভ ফোল্ডার ID (e.g., "1AbCdEfGhIjKlMnOp")
+const FOLDER_NAME = "Resumes_Downloaded";         // যে গুগল ড্রাইভ ফোল্ডারে ফাইল সেভ হবে (SHARED_FOLDER_ID খালি থাকলে)
 const PROCESSED_LABEL = "Resume_Processed";       // প্রসেস হওয়া ইমেইলের জন্য জিমেইল লেবেল
-const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".doc"]; // রেজ্যুমে এক্সটেনশন
+const ALLOWED_EXTENSIONS = [".pdf", ".docx", ".doc", ".rtf"]; // রেজ্যুমে এক্সটেনশন
 
 function autoDownloadResumes() {
   try {
-    // ১. গুগল ড্রাইভে ফোল্ডার আছে কি না চেক করা, না থাকলে অটো তৈরি করা
+    // ১. গুগল ড্রাইভে ফোল্ডার ঠিক করা (শেয়ার্ড ID থাকলে তা দিয়ে, নয়তো নামে খোঁজা)
     let folder;
-    const folders = DriveApp.getFoldersByName(FOLDER_NAME);
-    if (folders.hasNext()) {
-      folder = folders.next();
+    if (SHARED_FOLDER_ID && SHARED_FOLDER_ID.trim() !== "") {
+      folder = DriveApp.getFolderById(SHARED_FOLDER_ID.trim());
     } else {
-      folder = DriveApp.createFolder(FOLDER_NAME);
+      const folders = DriveApp.getFoldersByName(FOLDER_NAME);
+      if (folders.hasNext()) {
+        folder = folders.next();
+      } else {
+        folder = DriveApp.createFolder(FOLDER_NAME);
+      }
     }
 
     // ২. জিমেইলে লেবেল চেক করা, না থাকলে তৈরি করা
@@ -50,6 +56,7 @@ function autoDownloadResumes() {
           const attachments = msg.getAttachments();
           const sender = msg.getFrom();
           const date = msg.getDate();
+          const subject = msg.getSubject() || "";
           
           // টাইমস্ট্যাম্প ফরম্যাট (e.g., 20261017_1030)
           const timeStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyyMMdd_HHmm");
@@ -57,6 +64,10 @@ function autoDownloadResumes() {
           // সেন্ডারের পরিষ্কার নাম বের করা
           let cleanSender = sender.replace(/<.*?>/, "").trim().replace(/[^a-zA-Z0-9_\- ]/g, "");
           if (!cleanSender) cleanSender = "Candidate";
+
+          // পদের নাম / সাবজেক্ট লাইন পরিষ্কার করা (যাতে লোকাল পিসিতে পদ অনুযায়ী ফোল্ডার হতে পারে)
+          let cleanSubject = subject.replace(/[^a-zA-Z0-9_\- ]/g, "").trim();
+          if (cleanSubject.length > 35) cleanSubject = cleanSubject.substring(0, 35).trim();
 
           for (let k = 0; k < attachments.length; k++) {
             const att = attachments[k];
@@ -66,7 +77,7 @@ function autoDownloadResumes() {
             // এক্সটেনশন চেক
             const isMatch = ALLOWED_EXTENSIONS.some(ext => lowerName.endsWith(ext));
             if (isMatch) {
-              const uniqueFileName = timeStr + "_" + cleanSender + "_" + originalName;
+              const uniqueFileName = timeStr + "_" + cleanSender + (cleanSubject ? "_" + cleanSubject : "") + "_" + originalName;
               
               // গুগল ড্রাইভে সেভ করা
               folder.createFile(att.copyBlob().setName(uniqueFileName));

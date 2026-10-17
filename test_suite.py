@@ -73,7 +73,7 @@ class ComprehensiveTestSuite(unittest.TestCase):
         self.assertIn("Pervez Mollik", read_res["content"])
 
         save_res = save_resume_document(test_pdf, "Candidate Name: Pervez Mollik\nRole: Lead Developer\nStatus: Approved")
-        self.assertTrue(save_res["success"])
+        self.assertTrue(save_res["success"], msg=f"PDF Save Error: {save_res.get('error')}")
 
         v_res = read_resume_document(test_pdf)
         self.assertIn("Status: Approved", v_res["content"])
@@ -172,13 +172,95 @@ class ComprehensiveTestSuite(unittest.TestCase):
         self.assertIn("Tanvir Hasan", content)
         self.assertIn("Tech Corp", content)
 
+        # Verify auto-move to company/title subfolder
+        sorted_file = os.path.join(test_dir, "Tech Corp", "20261017_1030_Tanvir Hasan_TestResume.pdf")
+        self.assertTrue(os.path.exists(sorted_file))
+
         # Cleanup
-        if os.path.exists(test_file):
-            os.remove(test_file)
-        if os.path.exists(manifest_file):
-            os.remove(manifest_file)
+        import shutil
         if os.path.exists(test_dir):
-            os.rmdir(test_dir)
+            shutil.rmtree(test_dir, ignore_errors=True)
+
+    def test_multi_account_config_synchronization(self):
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_multi_config.json")
+        cm = ConfigManager(cfg_path)
+        accounts_data = [
+            {"email": "inbox1@gmail.com", "app_password": "pass one"},
+            {"email": "inbox2@gmail.com", "app_password": "pass two"},
+            {"email": "inbox3@gmail.com", "app_password": "pass three"}
+        ]
+        cm.save_config({"accounts": accounts_data})
+        loaded = cm.load_config()
+        self.assertEqual(len(loaded.get("accounts", [])), 3)
+        self.assertEqual(loaded.get("email"), "inbox1@gmail.com")
+        self.assertEqual(loaded.get("app_password"), "pass one")
+        if os.path.exists(cfg_path):
+            os.remove(cfg_path)
+
+    def test_email_watcher_multi_account_initialization(self):
+        from services.email_watcher import EmailWatcher
+        accounts = [
+            {"email": "primary@gmail.com", "app_password": "abcd efgh ijkl mnop"},
+            {"email": "secondary@gmail.com", "app_password": "qrst uvwx yz12 3456"}
+        ]
+        watcher = EmailWatcher(
+            accounts=accounts,
+            base_dir=os.path.dirname(os.path.abspath(__file__)),
+            companies=[{"name": "Python Developer", "keyword": "python"}],
+            create_subfolders=True
+        )
+        self.assertEqual(len(watcher.accounts), 2)
+        self.assertEqual(watcher.email_addr, "primary@gmail.com")
+        self.assertEqual(watcher.app_pwd, "abcdefghijklmnop")
+
+    def test_web_server_authentication_flow(self):
+        from web_server import app, MASTER_PASSWORD
+        self.assertEqual(MASTER_PASSWORD, "Parvez7221")
+        
+        client = app.test_client()
+
+        # 1. Initially unauthenticated
+        auth_status = client.get('/api/auth_status').get_json()
+        self.assertFalse(auth_status.get('authenticated'))
+
+        # 2. Protected endpoint returns 401
+        res = client.get('/api/config')
+        self.assertEqual(res.status_code, 401)
+        data = res.get_json()
+        self.assertTrue(data.get('auth_required'))
+
+        # 3. Login with wrong password fails
+        bad_login = client.post('/api/login', json={'password': 'WrongPassword123'})
+        self.assertEqual(bad_login.status_code, 401)
+        self.assertFalse(bad_login.get_json().get('success'))
+
+        # 4. Login with correct master password succeeds
+        good_login = client.post('/api/login', json={'password': 'Parvez7221'})
+        self.assertEqual(good_login.status_code, 200)
+        self.assertTrue(good_login.get_json().get('success'))
+
+        # 5. Auth status is now True
+        auth_status_after = client.get('/api/auth_status').get_json()
+        self.assertTrue(auth_status_after.get('authenticated'))
+
+        # 6. Protected endpoint now accessible
+        cfg_res = client.get('/api/config')
+        self.assertEqual(cfg_res.status_code, 200)
+
+        # 7. Logout revokes session
+        logout_res = client.post('/api/logout')
+        self.assertEqual(logout_res.status_code, 200)
+
+        # 8. Re-verification: unauthenticated again
+        auth_status_final = client.get('/api/auth_status').get_json()
+        self.assertFalse(auth_status_final.get('authenticated'))
+
+        cfg_res_final = client.get('/api/config')
+        self.assertEqual(cfg_res_final.status_code, 401)
+
+    def test_desktop_app_master_password_constant(self):
+        import app
+        self.assertEqual(app.MASTER_PASSWORD, "Parvez7221")
 
 if __name__ == "__main__":
     unittest.main()

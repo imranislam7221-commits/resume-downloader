@@ -1,6 +1,17 @@
 {
+    "monitoring_mode": "cloud_sync",
     "gmail_address": "your.email@gmail.com",
     "app_password": "xxxx xxxx xxxx xxxx",
+    "accounts": [
+        {
+            "email": "hr1@gmail.com",
+            "app_password": "xxxx xxxx xxxx xxxx"
+        },
+        {
+            "email": "hr2@gmail.com",
+            "app_password": "yyyy yyyy yyyy yyyy"
+        }
+    ],
     "base_directory": "D:\\\\Resumes",
     "create_subfolders": true,
     "prefix_applicant_name": true,

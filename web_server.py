@@ -11,7 +11,7 @@ import hashlib
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from flask import Flask, jsonify, request, Response, send_file, render_template
+from flask import Flask, jsonify, request, Response, send_file, render_template, session
 from imap_tools import MailBox
 import pymupdf
 import docx
@@ -27,6 +27,8 @@ config_file = os.path.join(app_dir, "config.json")
 config_manager = ConfigManager(config_file)
 
 app = Flask(__name__, template_folder=os.path.join(app_dir, "templates"))
+app.secret_key = os.environ.get("RESUMEFLOW_SECRET_KEY", "rf_enterprise_master_key_parvez_7221")
+MASTER_PASSWORD = os.environ.get("RESUMEFLOW_MASTER_PASSWORD", "Parvez7221")
 
 log_messages = []
 log_lock = threading.Lock()
@@ -34,11 +36,53 @@ active_watcher: Optional[Any] = None
 email_watcher: Optional[Any] = None
 watcher_lock = threading.Lock()
 
+SAFE_DOC_EXTENSIONS = ('.pdf', '.docx', '.doc', '.rtf', '.txt')
+
 MANIFEST_HEADERS = [
     "Downloaded At", "Company", "Applicant Name", "Applicant Email",
     "Email Subject", "Filename", "File Size (KB)", "File Path",
     "SHA256", "Status", "Notes"
 ]
+
+@app.before_request
+def require_master_password():
+    # Exclude non-API routes (root UI, static files)
+    if not request.path.startswith("/api/"):
+        return None
+    # Exclude public auth endpoints
+    if request.path in ["/api/login", "/api/auth_status"]:
+        return None
+    # Enforce session authentication
+    if not session.get("authenticated"):
+        return jsonify({
+            "success": False,
+            "auth_required": True,
+            "error": "Authentication required. Please enter master password."
+        }), 401
+    return None
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.json or {}
+    pwd = (data.get("password") or "").strip()
+    if pwd == MASTER_PASSWORD:
+        session["authenticated"] = True
+        add_log("Master security key verified. Dashboard unlocked.", "SUCCESS")
+        return jsonify({"success": True, "message": "Authenticated successfully."})
+    else:
+        add_log("Failed dashboard unlock attempt with invalid security key.", "WARNING")
+        return jsonify({"success": False, "error": "Invalid master password. Access denied."}), 401
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.pop("authenticated", None)
+    add_log("Dashboard locked / session logged out.", "INFO")
+    return jsonify({"success": True, "message": "Logged out successfully."})
+
+@app.route("/api/auth_status", methods=["GET"])
+def api_auth_status():
+    is_auth = bool(session.get("authenticated", False))
+    return jsonify({"authenticated": is_auth})
 
 def add_log(message: str, level: str = "INFO"):
     timestamp = datetime.now().strftime("%H:%M:%S")
@@ -327,7 +371,12 @@ def save_doc_endpoint():
 def open_native_endpoint():
     data = request.json or {}
     file_path = data.get("file_path", "")
-    if file_path and os.path.exists(file_path):
+    if not file_path:
+        return jsonify({"success": False, "error": "No file path provided."})
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in SAFE_DOC_EXTENSIONS:
+        return jsonify({"success": False, "error": "Only resume documents can be opened."})
+    if os.path.exists(file_path):
         os.startfile(file_path)
         add_log(f"Opened '{os.path.basename(file_path)}' in native desktop application.", "INFO")
         return jsonify({"success": True})
@@ -335,9 +384,13 @@ def open_native_endpoint():
 
 @app.route("/api/test_connection", methods=["POST"])
 def test_connection_endpoint():
-    cfg = config_manager.load_config()
-    email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
-    app_pwd = "".join((cfg.get("app_password", "")).split())
+    data = request.json or {}
+    email_addr = (data.get("email") or "").strip()
+    app_pwd = "".join((data.get("password") or data.get("app_password", "")).split())
+    if not email_addr or not app_pwd:
+        cfg = config_manager.load_config()
+        email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+        app_pwd = "".join((cfg.get("app_password", "")).split())
     if not email_addr or not app_pwd:
         return jsonify({"success": False, "error": "Email and 16-character App Password are required."})
     try:
@@ -346,7 +399,7 @@ def test_connection_endpoint():
         add_log("IMAP connection test successful for " + email_addr, "SUCCESS")
         return jsonify({"success": True})
     except Exception as e:
-        add_log(f"IMAP connection test failed: {e}", "ERROR")
+        add_log(f"IMAP connection test failed for {email_addr}: {e}", "ERROR")
         return jsonify({"success": False, "error": str(e)})
 
 @app.route("/api/manifest", methods=["GET"])
@@ -450,7 +503,12 @@ def open_base_folder():
 def open_file():
     data = request.json or {}
     fpath = data.get("path", "")
-    if fpath and os.path.exists(fpath):
+    if not fpath:
+        return jsonify({"success": False, "error": "No file path provided."})
+    ext = os.path.splitext(fpath)[1].lower()
+    if ext not in SAFE_DOC_EXTENSIONS:
+        return jsonify({"success": False, "error": "Only resume documents can be opened."})
+    if os.path.exists(fpath):
         os.startfile(fpath)
         return jsonify({"success": True})
     return jsonify({"success": False, "error": "File not found."})
@@ -463,11 +521,17 @@ def monitoring_status():
         dups = active_watcher.duplicates_prevented if active_watcher else 0
         cls_name = active_watcher.__class__.__name__ if active_watcher else "None"
         mode = "cloud_sync" if cls_name == "FolderWatcher" else ("direct_gmail" if cls_name == "EmailWatcher" else "idle")
+    with log_lock:
+        recent_logs = list(log_messages[-100:])
     return jsonify({
         "is_monitoring": is_active,
         "mode": mode,
         "log_count": len(log_messages),
-        "duplicates_prevented": dups
+        "duplicates_prevented": dups,
+        "logs": recent_logs,
+        "stats": {
+            "duplicates_prevented": dups
+        }
     })
 
 @app.route("/api/monitoring/start", methods=["POST"])
@@ -490,6 +554,7 @@ def start_monitoring():
             active_watcher = FolderWatcher(
                 watch_dir=base_dir,
                 companies=cfg.get("companies", []),
+                create_subfolders=cfg.get("create_subfolders", True),
                 enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
                 telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
                 telegram_chat_id=cfg.get("telegram_chat_id", ""),
@@ -498,20 +563,31 @@ def start_monitoring():
             )
             email_watcher = active_watcher
             active_watcher.start()
-            add_log(f"☁️ Cloud Sync Folder Watcher started. Monitoring: '{base_dir}'", "SUCCESS")
+            add_log(f"☁️ Cloud Sync Folder Watcher started. Monitoring: '{base_dir}' with Auto Title-Sorting.", "SUCCESS")
             return jsonify({"success": True, "mode": "cloud_sync"})
 
         else:
-            # direct_gmail mode
-            email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
-            app_pwd = "".join((cfg.get("app_password", "")).split())
+            # direct_gmail mode (supports multiple accounts)
+            accounts = cfg.get("accounts", [])
+            if not accounts:
+                email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+                app_pwd = "".join((cfg.get("app_password", "")).split())
+                if email_addr and app_pwd:
+                    accounts = [{"email": email_addr, "app_password": app_pwd}]
 
-            if not email_addr or not app_pwd or not base_dir:
-                return jsonify({"success": False, "error": "Direct Gmail mode requires Email, 16-char App Password, and Local Directory."})
+            valid_accounts = [
+                a for a in accounts
+                if isinstance(a, dict) and a.get("email") and a.get("app_password")
+            ]
+
+            if not valid_accounts or not base_dir:
+                return jsonify({
+                    "success": False,
+                    "error": "Direct Gmail mode requires at least one configured Gmail account (with 16-char App Password) and Local Directory."
+                })
 
             active_watcher = EmailWatcher(
-                email_addr=email_addr,
-                app_pwd=app_pwd,
+                accounts=valid_accounts,
                 base_dir=base_dir,
                 companies=cfg.get("companies", []),
                 create_subfolders=cfg.get("create_subfolders", True),
@@ -524,8 +600,9 @@ def start_monitoring():
             )
             email_watcher = active_watcher
             active_watcher.start()
-            add_log(f"✉️ Autonomous Gmail IMAP monitoring started for '{email_addr}'.", "SUCCESS")
-            return jsonify({"success": True, "mode": "direct_gmail"})
+            acc_list_str = ", ".join([a.get("email", "") for a in valid_accounts])
+            add_log(f"✉️ Autonomous Gmail IMAP monitoring started for {len(valid_accounts)} account(s): [{acc_list_str}].", "SUCCESS")
+            return jsonify({"success": True, "mode": "direct_gmail", "accounts_count": len(valid_accounts)})
 
 def stop_monitoring_internal():
     global active_watcher, email_watcher

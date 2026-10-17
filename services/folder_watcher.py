@@ -4,10 +4,11 @@ import csv
 import time
 import hashlib
 import threading
+import shutil
 from datetime import datetime
 from typing import List, Dict, Callable, Optional, Set
 
-from utils.file_utils import sanitize_folder_name, sanitize_filename, ALLOWED_EXTENSIONS
+from utils.file_utils import sanitize_folder_name, sanitize_filename, get_unique_filepath, ALLOWED_EXTENSIONS
 from services.notification_service import send_windows_toast, send_telegram_alert
 
 EXTENSIONS = ALLOWED_EXTENSIONS + ('.rtf',)
@@ -52,6 +53,7 @@ class FolderWatcher:
         self,
         watch_dir: str,
         companies: Optional[List[Dict[str, str]]] = None,
+        create_subfolders: bool = True,
         enable_desktop_toasts: bool = True,
         telegram_token: str = "",
         telegram_chat_id: str = "",
@@ -60,6 +62,7 @@ class FolderWatcher:
     ):
         self.watch_dir = os.path.abspath(watch_dir.strip())
         self.companies = companies or []
+        self.create_subfolders = create_subfolders
         self.enable_desktop_toasts = enable_desktop_toasts
         self.telegram_token = telegram_token.strip()
         self.telegram_chat_id = telegram_chat_id.strip()
@@ -186,6 +189,19 @@ class FolderWatcher:
                 applicant_name, orig_name, _ = parse_cloud_filename(fname)
                 company = self._match_company(fname, applicant_name)
                 size_kb = round(file_size / 1024.0, 2)
+
+                # Move into title/company subfolder if enabled
+                if self.create_subfolders and company:
+                    target_folder = os.path.join(self.watch_dir, sanitize_folder_name(company))
+                    if os.path.abspath(target_folder) != os.path.abspath(self.watch_dir):
+                        os.makedirs(target_folder, exist_ok=True)
+                        dest_path = get_unique_filepath(target_folder, fname)
+                        try:
+                            shutil.move(full_path, dest_path)
+                            full_path = dest_path
+                            norm_path = os.path.normcase(full_path)
+                        except Exception as move_err:
+                            self.log(f"Notice: Could not move '{fname}' to subfolder '{company}': {move_err}", "WARNING")
 
                 self._record_manifest(company, applicant_name, fname, size_kb, full_path, sha256_val)
                 self.known_hashes.add(sha256_val)

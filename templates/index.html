@@ -895,6 +895,18 @@
             padding: 20px;
         }
         .modal-overlay.open { display: flex; }
+        .auth-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(5, 8, 16, 0.94);
+            backdrop-filter: blur(24px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            padding: 20px;
+        }
+        .auth-modal-overlay.open { display: flex; }
         .modal-card {
             background: #0d1322;
             border: 1px solid var(--border-card);
@@ -1204,6 +1216,10 @@
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                     <span id="globalActionLabel">START ENGINE</span>
                 </button>
+                <button id="btnLockDashboard" class="btn-secondary" onclick="lockDashboard()" title="Lock recruitment dashboard (Password: Parvez7221)" style="padding: 9px 14px; font-size: 12px; display: flex; align-items: center; gap: 6px; border-radius: var(--radius-md);">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    <span>Lock</span>
+                </button>
             </div>
         </header>
 
@@ -1455,22 +1471,23 @@
                     </div>
 
                     <div id="gmailCredentialsSection">
-                        <div class="form-group">
-                            <label>Gmail Address <span id="gmailReqBadge" style="font-size: 11px; color: var(--text-muted);">(Optional in Cloud Sync mode)</span></label>
-                            <input type="text" id="gmailAddress" placeholder="your.name@gmail.com" onchange="saveConfig(true)">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <label style="font-weight: 700; color: var(--text-title); font-size: 13px; margin: 0; display: flex; align-items: center; gap: 8px;">
+                                <span>Connected Gmail Inboxes</span>
+                                <span id="accountCountBadge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 11px; padding: 2px 8px; border-radius: 999px;">1 Inbox</span>
+                                <span id="gmailReqBadge" style="font-size: 11px; color: var(--text-muted);">(Optional in Cloud Sync)</span>
+                            </label>
+                            <button type="button" class="btn-secondary" style="padding: 4px 10px; font-size: 11px; display: flex; align-items: center; gap: 4px;" onclick="addAccountRow('', ''); saveConfig(true);">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                <span>+ Add Inbox</span>
+                            </button>
                         </div>
 
-                        <div class="form-group">
-                            <label>
-                                <span>Google 16-Character App Password</span>
-                                <a href="javascript:void(0)" onclick="openGuideModal()">Password Setup Guide ↗</a>
-                            </label>
-                            <div class="input-wrap">
-                                <input type="password" id="appPassword" placeholder="abcd efgh ijkl mnop" onchange="saveConfig(true)">
-                                <button class="btn-inline-toggle" onclick="togglePasswordVisibility()">
-                                    <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                </button>
-                            </div>
+                        <div id="accountsContainer" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;"></div>
+
+                        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.4; background: rgba(255,255,255,0.02); padding: 8px 10px; border-radius: 6px; border: 1px dashed rgba(255,255,255,0.1);">
+                            💡 <strong>Multi-Account Parallel Ingestion:</strong> Connect 2, 3, or more Gmail accounts. In Direct Gmail mode, all inboxes are checked concurrently. Cross-account SHA-256 deduplication ensures an applicant's resume is downloaded only once.
+                            <a href="javascript:void(0)" onclick="openGuideModal()" style="color: #38bdf8; margin-left: 6px;">App Password Guide ↗</a>
                         </div>
                     </div>
 
@@ -1673,17 +1690,32 @@
         async function loadConfig() {
             try {
                 const res = await fetch('/api/config');
+                if (res.status === 401) { showAuthModal(); return; }
                 const data = await res.json();
                 if (data.monitoring_mode && document.getElementById('monitoringMode')) {
                     document.getElementById('monitoringMode').value = data.monitoring_mode;
                 }
                 handleModeChange();
 
-                document.getElementById('gmailAddress').value = data.gmail_address || '';
-                document.getElementById('appPassword').value = data.app_password || '';
+                // Load Multi-Account inboxes
+                const container = document.getElementById('accountsContainer');
+                if (container) {
+                    container.innerHTML = '';
+                    const accs = (data.accounts && data.accounts.length > 0) ? data.accounts : (data.gmail_address ? [{ email: data.gmail_address, app_password: data.app_password || '' }] : []);
+                    if (accs.length > 0) {
+                        accs.forEach(a => addAccountRow(a.email, a.app_password));
+                    } else {
+                        addAccountRow('', '');
+                    }
+                    updateAccountCount();
+                }
+
                 document.getElementById('baseDirectory').value = data.base_directory || '';
                 
-                document.getElementById('summaryEmail').innerText = data.gmail_address || 'Not configured';
+                const initialEmails = (data.accounts && data.accounts.length > 0)
+                    ? data.accounts.map(a => a.email).filter(Boolean).join(', ')
+                    : (data.gmail_address || 'Not configured');
+                document.getElementById('summaryEmail').innerText = initialEmails || 'Not configured';
                 document.getElementById('summaryDir').innerText = data.base_directory || 'Not configured';
 
                 if (data.create_subfolders !== undefined) {
@@ -1710,6 +1742,111 @@
             } catch (err) {
                 console.error(err);
             }
+        }
+
+        function addAccountRow(email = '', pwd = '') {
+            const container = document.getElementById('accountsContainer');
+            if (!container) return;
+            const idx = container.children.length;
+            const div = document.createElement('div');
+            div.className = 'account-row';
+            div.style.cssText = 'background: rgba(11, 17, 32, 0.75); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;';
+            div.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 12px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                        <span class="account-index-label">Inbox #${idx + 1}</span>
+                    </span>
+                    <div style="display: flex; gap: 6px;">
+                        <button type="button" class="btn-secondary" style="padding: 2px 8px; font-size: 11px;" onclick="testSingleAccount(this)">Test</button>
+                        <button type="button" class="btn-delete-rule" style="width: 24px; height: 24px; font-size: 11px;" onclick="removeAccountRow(this)" title="Remove Account">✕</button>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <input type="text" class="acc-email" value="${escapeHtml(email)}" placeholder="account@gmail.com" style="background: var(--surface-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 10px; color: var(--text-title); font-size: 12px;" onchange="saveConfig(true)">
+                    <div style="position: relative;">
+                        <input type="password" class="acc-pwd" value="${escapeHtml(pwd)}" placeholder="16-character App Password" style="width: 100%; background: var(--surface-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 30px 6px 10px; color: var(--text-title); font-size: 12px;" onchange="saveConfig(true)">
+                        <button type="button" class="btn-inline-toggle" style="position: absolute; right: 4px; top: 4px;" onclick="toggleRowPassword(this)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(div);
+            updateAccountCount();
+        }
+
+        function removeAccountRow(btn) {
+            const container = document.getElementById('accountsContainer');
+            if (container.children.length <= 1) {
+                showToast('At least one inbox row must remain');
+                return;
+            }
+            btn.closest('.account-row').remove();
+            saveConfig(true);
+            updateAccountCount();
+        }
+
+        function updateAccountCount() {
+            const rows = document.querySelectorAll('.account-row');
+            const count = rows.length;
+            const badge = document.getElementById('accountCountBadge');
+            if (badge) badge.innerText = `${count} Inbox${count > 1 ? 'es' : ''}`;
+            rows.forEach((r, i) => {
+                const lbl = r.querySelector('.account-index-label');
+                if (lbl) lbl.innerText = `Inbox #${i + 1}`;
+            });
+        }
+
+        function toggleRowPassword(btn) {
+            const input = btn.previousElementSibling;
+            if (!input) return;
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/></svg>';
+            } else {
+                input.type = 'password';
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+            }
+        }
+
+        async function testSingleAccount(btn) {
+            const row = btn.closest('.account-row');
+            const email = row.querySelector('.acc-email').value.trim();
+            const pwd = row.querySelector('.acc-pwd').value.trim();
+            if (!email || !pwd) {
+                alert('Please enter both the Gmail address and 16-character App Password.');
+                return;
+            }
+            showToast(`Testing IMAP for ${email}...`);
+            try {
+                const res = await fetch('/api/test_connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email, password: pwd })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`✅ Connected to ${email}!`);
+                } else {
+                    alert(`Connection Failed for ${email}:\n${data.error}`);
+                }
+            } catch (e) {
+                alert('Connection test failed: ' + e);
+            }
+        }
+
+        function getAccounts() {
+            const rows = document.querySelectorAll('.account-row');
+            const accounts = [];
+            rows.forEach(r => {
+                const email = r.querySelector('.acc-email').value.trim();
+                const pwd = r.querySelector('.acc-pwd').value.trim();
+                if (email || pwd) {
+                    accounts.push({ email, app_password: pwd });
+                }
+            });
+            return accounts;
         }
 
         function addRuleRow(name = '', keyword = '') {
@@ -1751,10 +1888,15 @@
         async function saveConfig(silent = false) {
             const modeEl = document.getElementById('monitoringMode');
             const currentMode = modeEl ? modeEl.value : 'cloud_sync';
+            const accounts = getAccounts();
+            const firstEmail = accounts.length > 0 ? accounts[0].email : '';
+            const firstPwd = accounts.length > 0 ? accounts[0].app_password : '';
+
             const payload = {
                 monitoring_mode: currentMode,
-                gmail_address: document.getElementById('gmailAddress').value.trim(),
-                app_password: document.getElementById('appPassword').value.trim(),
+                accounts: accounts,
+                gmail_address: firstEmail,
+                app_password: firstPwd,
                 base_directory: document.getElementById('baseDirectory').value.trim(),
                 create_subfolders: document.getElementById('createSubfolders').checked,
                 prefix_applicant_name: document.getElementById('prefixApplicantName').checked,
@@ -1766,7 +1908,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            document.getElementById('summaryEmail').innerText = payload.gmail_address || 'Not configured';
+            const summaryEmails = accounts.filter(a => a.email).map(a => a.email).join(', ');
+            document.getElementById('summaryEmail').innerText = summaryEmails || 'Not configured';
             document.getElementById('summaryDir').innerText = payload.base_directory || 'Not configured';
             if (!silent) showToast('Configuration Saved Successfully');
             updateRuleCount();
@@ -1786,24 +1929,33 @@
         }
 
         async function testConnection() {
-            const email = document.getElementById('gmailAddress').value.trim();
-            const pwd = document.getElementById('appPassword').value.trim();
-            if (!email || !pwd) {
-                alert('Please enter your Gmail address and 16-character App Password first.');
+            const accounts = getAccounts();
+            const valid = accounts.filter(a => a.email && a.app_password);
+            if (valid.length === 0) {
+                alert('Please enter at least one Gmail address and 16-character App Password first.');
                 return;
             }
-            showToast('Verifying SSL IMAP Connection...');
-            const res = await fetch('/api/test_connection', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, password: pwd })
-            });
-            const data = await res.json();
-            if (data.success) {
-                showToast('✅ IMAP Authentication Successful!');
-            } else {
-                alert('Connection Failed: ' + data.error);
+            showToast(`Testing IMAP for ${valid.length} inbox(es)...`);
+            for (const acc of valid) {
+                try {
+                    const res = await fetch('/api/test_connection', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: acc.email, password: acc.app_password })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast(`✅ Connected to ${acc.email}`);
+                    } else {
+                        alert(`Connection Failed for ${acc.email}:\n${data.error}`);
+                        return;
+                    }
+                } catch (e) {
+                    alert(`Connection error for ${acc.email}: ${e}`);
+                    return;
+                }
             }
+            showToast('✅ All configured inboxes authenticated successfully!');
         }
 
         async function toggleMonitoring() {
@@ -1843,6 +1995,7 @@
         async function fetchManifest() {
             try {
                 const res = await fetch('/api/manifest');
+                if (res.status === 401) { showAuthModal(); return; }
                 const data = await res.json();
                 allManifestRecords = data.records || [];
                 renderManifestTable(allManifestRecords);
@@ -1925,6 +2078,7 @@
         async function fetchStatus() {
             try {
                 const res = await fetch('/api/monitoring/status');
+                if (res.status === 401) { showAuthModal(); return; }
                 const data = await res.json();
                 isMonitoring = data.is_monitoring;
 
@@ -1965,12 +2119,13 @@
                 }
 
                 const terminal = document.getElementById('terminalConsole');
-                const autoScroll = document.getElementById('autoScrollCheck').checked;
-                terminal.innerHTML = data.logs.map(l => `
+                const autoScroll = document.getElementById('autoScrollCheck') ? document.getElementById('autoScrollCheck').checked : true;
+                const logsList = data.logs || [];
+                terminal.innerHTML = logsList.map(l => `
                     <div class="log-entry">
-                        <span class="log-time">[${l.time}]</span>
-                        <span class="log-level ${l.level}">[${l.level}]</span>
-                        <span class="log-msg">${escapeHtml(l.message)}</span>
+                        <span class="log-time">[${l.timestamp || l.time || ''}]</span>
+                        <span class="log-level ${l.level || 'INFO'}">[${l.level || 'INFO'}]</span>
+                        <span class="log-msg">${escapeHtml(l.message || '')}</span>
                     </div>
                 `).join('');
                 if (autoScroll) {
@@ -2005,11 +2160,137 @@
             }
         });
 
-        loadConfig();
-        fetchStatus();
-        fetchManifest();
-        setInterval(fetchStatus, 2000);
-        setInterval(fetchManifest, 5000);
+        let isAuthenticated = false;
+        let pollingIntervals = [];
+
+        function showAuthModal() {
+            isAuthenticated = false;
+            stopAllPolling();
+            const modal = document.getElementById('masterAuthModal');
+            if (modal) {
+                modal.classList.add('open');
+                const input = document.getElementById('masterPasswordInput');
+                if (input) setTimeout(() => input.focus(), 150);
+            }
+        }
+
+        function hideAuthModal() {
+            const modal = document.getElementById('masterAuthModal');
+            if (modal) modal.classList.remove('open');
+        }
+
+        function stopAllPolling() {
+            pollingIntervals.forEach(clearInterval);
+            pollingIntervals = [];
+        }
+
+        function startAllPolling() {
+            stopAllPolling();
+            pollingIntervals.push(setInterval(fetchStatus, 2000));
+            pollingIntervals.push(setInterval(fetchManifest, 5000));
+        }
+
+        async function checkAuthStatus() {
+            try {
+                const res = await fetch('/api/auth_status');
+                const data = await res.json();
+                if (data.authenticated) {
+                    isAuthenticated = true;
+                    hideAuthModal();
+                    initDashboardData();
+                } else {
+                    showAuthModal();
+                }
+            } catch (e) {
+                showAuthModal();
+            }
+        }
+
+        async function handleMasterLogin(e) {
+            if (e) e.preventDefault();
+            const input = document.getElementById('masterPasswordInput');
+            const pwd = input ? input.value : '';
+            const errBox = document.getElementById('authErrorMsg');
+            const errText = document.getElementById('authErrorText');
+            const btn = document.getElementById('btnUnlockDashboard');
+            
+            if (!pwd) {
+                if (errBox) { errBox.style.display = 'flex'; errText.innerText = 'Please enter password.'; }
+                return;
+            }
+            
+            if (btn) { btn.disabled = true; btn.innerText = 'Verifying...'; }
+            if (errBox) errBox.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pwd })
+                });
+                const data = await res.json();
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg><span>Unlock Dashboard</span>`;
+                }
+                
+                if (data.success) {
+                    isAuthenticated = true;
+                    hideAuthModal();
+                    if (input) input.value = '';
+                    showToast('Master Access Granted. Welcome back!');
+                    initDashboardData();
+                } else {
+                    if (errBox) {
+                        errBox.style.display = 'flex';
+                        errText.innerText = data.error || 'Invalid master password.';
+                    }
+                    if (input) {
+                        input.focus();
+                        input.select();
+                    }
+                }
+            } catch (err) {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = `<span>Unlock Dashboard</span>`;
+                }
+                if (errBox) {
+                    errBox.style.display = 'flex';
+                    errText.innerText = 'Server connection failed.';
+                }
+            }
+        }
+
+        async function lockDashboard() {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+            } catch (e) {}
+            showToast('Dashboard locked.');
+            showAuthModal();
+        }
+
+        function toggleMasterPasswordVisibility() {
+            const input = document.getElementById('masterPasswordInput');
+            const icon = document.getElementById('masterEyeIcon');
+            if (!input || !icon) return;
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+            } else {
+                input.type = 'password';
+                icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+            }
+        }
+
+        function initDashboardData() {
+            loadConfig();
+            fetchStatus();
+            fetchManifest();
+            startAllPolling();
+        }
+
+        checkAuthStatus();
     
         let currentNoteTarget = { filePath: '', status: '', notes: '' };
         let currentEditTarget = { appName: '', company: '', filename: '', filePath: '', format: '' };
@@ -2336,6 +2617,51 @@
                         <span>💾 Save Changes to Local Disk</span>
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Master Security Lock Screen Modal (Master Password: Parvez7221) -->
+    <div id="masterAuthModal" class="auth-modal-overlay">
+        <div class="modal-card" style="max-width: 420px; text-align: center; border: 1px solid rgba(56, 189, 248, 0.28); box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85), 0 0 40px rgba(56, 189, 248, 0.18);">
+            <div style="width: 64px; height: 64px; border-radius: 18px; background: linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(99, 102, 241, 0.22)); border: 1px solid rgba(56, 189, 248, 0.35); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; color: #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.25);">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+            </div>
+            
+            <h3 style="font-size: 20px; font-weight: 800; color: #ffffff; margin-bottom: 6px; letter-spacing: -0.02em;">ResumeFlow Pro Security</h3>
+            <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 22px; line-height: 1.5;">Enter Master Security Password to access the recruitment pipeline & applicant data.</p>
+            
+            <form id="authForm" onsubmit="handleMasterLogin(event)">
+                <div style="position: relative; margin-bottom: 14px; text-align: left;">
+                    <input type="password" id="masterPasswordInput" class="input-field" placeholder="Enter master password..." autocomplete="current-password" required style="width: 100%; padding: 12px 42px 12px 14px; font-size: 14px; letter-spacing: 0.05em; background: rgba(11, 15, 25, 0.95); border-radius: 10px; border: 1px solid var(--border-subtle); color: #ffffff;">
+                    <button type="button" onclick="toggleMasterPasswordVisibility()" style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; padding: 4px;">
+                        <svg id="masterEyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div id="authErrorMsg" style="display: none; color: #fb7185; font-size: 12px; margin-bottom: 14px; padding: 9px 12px; background: rgba(244, 63, 94, 0.12); border: 1px solid rgba(244, 63, 94, 0.35); border-radius: 8px; text-align: left; align-items: center; gap: 8px;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    <span id="authErrorText">Invalid master password.</span>
+                </div>
+                
+                <button type="submit" id="btnUnlockDashboard" class="btn-primary" style="width: 100%; padding: 12px; font-size: 14px; font-weight: 700; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+                    </svg>
+                    <span>Unlock Dashboard</span>
+                </button>
+            </form>
+            
+            <div style="margin-top: 18px; font-size: 11px; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: 6px;">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                <span>Encrypted Session Authentication</span>
             </div>
         </div>
     </div>

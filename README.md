@@ -81,10 +81,11 @@ Gmail er standard password ekhane kaj korbe na, Google er security policy onujay
 
 ## 🛠 Key Features
 
-1. **Modern Dark Theme UI**: Built with CustomTkinter.
-2. **Dynamic Company Table**: Joto iccha company name ar keyword/email rule jog ba delete korte parben.
-3. **Smart Email Filtering**: Sender email address ebong Subject line check kore correct company detect kore.
-4. **Auto Attachment Extraction**: `.pdf`, `.docx`, ebong `.doc` files download kore company folder-e sort kore.
-5. **Mark as Read**: Download shesh hole Gmail-e email-ti 'SEEN' mark kore dey jate bar bar process na hoy.
-6. **System Tray Integration**: Window 'X' (close) korle app bondho hoy na, background-e system tray-te minimize thake. Tray theke restore ba exit kora jay.
-7. **Auto Config Save**: Folder path, email credentials, ar company rules automatic `config.json`-e save hoy.
+1. **Multi-Account Concurrent Ingestion**: Connect 2, 3, or unlimited Gmail inboxes simultaneously. Each inbox is monitored concurrently.
+2. **24/7 Cloud Resume Downloader**: Deploy `google_apps_script.js` to Google Cloud to ingest resumes 24/7 directly to Google Drive even when your PC is turned off.
+3. **Automated Title & Role Subfolder Sorting**: Resumes are automatically sorted into role/company-specific folders based on subject line keywords (e.g. `Developer/`, `Designer/`).
+4. **Hardware-Level SHA-256 Deduplication**: Prevents duplicate downloads even if the same candidate emails multiple accounts or you move/cut previously downloaded files.
+5. **Universal Document Editor & Previewer**: View and edit `.pdf` and `.docx` resumes directly in the browser dashboard without Microsoft Word or Adobe Acrobat.
+6. **Modern Dark Theme Web Dashboard & Desktop GUI**: Choose between running the browser-based Recruitment Hub (`run_web.bat`) or the native desktop application (`run.bat`).
+7. **Instant Desktop & Telegram Alerts**: Get immediate Windows notifications with sound and optional instant Telegram alerts when a new candidate applies.
+8. **System Tray & Windows Boot Auto-Start**: Minimize to system tray or toggle automatic silent startup on Windows boot.
