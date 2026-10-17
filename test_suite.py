@@ -136,5 +136,49 @@ class ComprehensiveTestSuite(unittest.TestCase):
                 break
         self.assertEqual(matched, "Google")
 
+    def test_parse_cloud_filename(self):
+        from services.folder_watcher import parse_cloud_filename
+        name, orig, time_str = parse_cloud_filename("20261017_1030_Sarah Jenkins_Resume.pdf")
+        self.assertEqual(name, "Sarah Jenkins")
+        self.assertEqual(orig, "Resume.pdf")
+        self.assertEqual(time_str, "20261017_1030")
+
+        # Test fallback
+        name2, orig2, _ = parse_cloud_filename("John_Doe_CV.pdf")
+        self.assertEqual(name2, "John Doe CV")
+
+    def test_folder_watcher_scan(self):
+        from services.folder_watcher import FolderWatcher
+        test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_folder_watcher_dir")
+        os.makedirs(test_dir, exist_ok=True)
+        
+        test_file = os.path.join(test_dir, "20261017_1030_Tanvir Hasan_TestResume.pdf")
+        with open(test_file, "wb") as f:
+            f.write(b"%PDF-1.4 test dummy resume content")
+
+        logs = []
+        watcher = FolderWatcher(
+            watch_dir=test_dir,
+            companies=[{"name": "Tech Corp", "keyword": "testresume"}],
+            enable_desktop_toasts=False,
+            log_callback=lambda m, l: logs.append(m)
+        )
+        watcher.scan_directory()
+
+        manifest_file = os.path.join(test_dir, "resumes_manifest.csv")
+        self.assertTrue(os.path.exists(manifest_file))
+        with open(manifest_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("Tanvir Hasan", content)
+        self.assertIn("Tech Corp", content)
+
+        # Cleanup
+        if os.path.exists(test_file):
+            os.remove(test_file)
+        if os.path.exists(manifest_file):
+            os.remove(manifest_file)
+        if os.path.exists(test_dir):
+            os.rmdir(test_dir)
+
 if __name__ == "__main__":
     unittest.main()

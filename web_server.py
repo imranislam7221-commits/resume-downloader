@@ -18,6 +18,7 @@ import docx
 
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
+from services.folder_watcher import FolderWatcher
 from services.notification_service import send_windows_toast, send_telegram_alert
 from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
 
@@ -29,7 +30,8 @@ app = Flask(__name__, template_folder=os.path.join(app_dir, "templates"))
 
 log_messages = []
 log_lock = threading.Lock()
-email_watcher: Optional[EmailWatcher] = None
+active_watcher: Optional[Any] = None
+email_watcher: Optional[Any] = None
 watcher_lock = threading.Lock()
 
 MANIFEST_HEADERS = [
@@ -426,11 +428,11 @@ def export_zip_endpoint():
 
 @app.route("/api/scan_now", methods=["POST"])
 def scan_now_endpoint():
-    global email_watcher
+    global active_watcher
     with watcher_lock:
-        if email_watcher and email_watcher.thread and email_watcher.thread.is_alive():
-            email_watcher.trigger_scan_now()
-            add_log("Manual instant scan requested. Checking inbox right now...", "INFO")
+        if active_watcher and active_watcher.thread and active_watcher.thread.is_alive():
+            active_watcher.trigger_scan_now()
+            add_log("Manual instant scan requested. Checking for new resumes...", "INFO")
             return jsonify({"success": True, "message": "Instant scan initiated!"})
         else:
             return jsonify({"success": False, "message": "Monitoring engine is stopped. Please start ingestion first."})
@@ -455,55 +457,82 @@ def open_file():
 
 @app.route("/api/monitoring/status", methods=["GET"])
 def monitoring_status():
-    global email_watcher
+    global active_watcher
     with watcher_lock:
-        is_active = (email_watcher is not None and email_watcher.thread is not None and email_watcher.thread.is_alive())
-        dups = email_watcher.duplicates_prevented if email_watcher else 0
+        is_active = (active_watcher is not None and active_watcher.thread is not None and active_watcher.thread.is_alive())
+        dups = active_watcher.duplicates_prevented if active_watcher else 0
+        cls_name = active_watcher.__class__.__name__ if active_watcher else "None"
+        mode = "cloud_sync" if cls_name == "FolderWatcher" else ("direct_gmail" if cls_name == "EmailWatcher" else "idle")
     return jsonify({
         "is_monitoring": is_active,
+        "mode": mode,
         "log_count": len(log_messages),
         "duplicates_prevented": dups
     })
 
 @app.route("/api/monitoring/start", methods=["POST"])
 def start_monitoring():
-    global email_watcher
+    global active_watcher, email_watcher
+    req_data = request.json or {}
     cfg = config_manager.load_config()
 
-    email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
-    app_pwd = "".join((cfg.get("app_password", "")).split())
-    base_dir = cfg.get("base_directory", "").strip()
-
-    if not email_addr or not app_pwd or not base_dir:
-        return jsonify({"success": False, "error": "Please configure Email, App Password, and Local Directory."})
-
+    mode = req_data.get("mode") or cfg.get("monitoring_mode", "cloud_sync")
+    base_dir = (req_data.get("base_directory") or cfg.get("base_directory", app_dir)).strip()
+    
     with watcher_lock:
-        if email_watcher and email_watcher.thread and email_watcher.thread.is_alive():
-            return jsonify({"success": True, "message": "Already monitoring."})
+        if active_watcher and active_watcher.thread and active_watcher.thread.is_alive():
+            return jsonify({"success": True, "message": "Monitoring is already active."})
 
-        email_watcher = EmailWatcher(
-            email_addr=email_addr,
-            app_pwd=app_pwd,
-            base_dir=base_dir,
-            companies=cfg.get("companies", []),
-            create_subfolders=cfg.get("create_subfolders", True),
-            prefix_applicant_name=cfg.get("prefix_applicant_name", True),
-            enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
-            telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
-            telegram_chat_id=cfg.get("telegram_chat_id", ""),
-            log_callback=add_log,
-            poll_interval=10
-        )
-        email_watcher.start()
+        if mode == "cloud_sync":
+            if not base_dir:
+                return jsonify({"success": False, "error": "Please configure Base / Google Drive Synced Directory."})
+            os.makedirs(base_dir, exist_ok=True)
+            active_watcher = FolderWatcher(
+                watch_dir=base_dir,
+                companies=cfg.get("companies", []),
+                enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
+                telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
+                telegram_chat_id=cfg.get("telegram_chat_id", ""),
+                log_callback=add_log,
+                poll_interval=5
+            )
+            email_watcher = active_watcher
+            active_watcher.start()
+            add_log(f"☁️ Cloud Sync Folder Watcher started. Monitoring: '{base_dir}'", "SUCCESS")
+            return jsonify({"success": True, "mode": "cloud_sync"})
 
-    add_log(f"Autonomous background monitoring started for '{email_addr}'.", "SUCCESS")
-    return jsonify({"success": True})
+        else:
+            # direct_gmail mode
+            email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+            app_pwd = "".join((cfg.get("app_password", "")).split())
+
+            if not email_addr or not app_pwd or not base_dir:
+                return jsonify({"success": False, "error": "Direct Gmail mode requires Email, 16-char App Password, and Local Directory."})
+
+            active_watcher = EmailWatcher(
+                email_addr=email_addr,
+                app_pwd=app_pwd,
+                base_dir=base_dir,
+                companies=cfg.get("companies", []),
+                create_subfolders=cfg.get("create_subfolders", True),
+                prefix_applicant_name=cfg.get("prefix_applicant_name", True),
+                enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
+                telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
+                telegram_chat_id=cfg.get("telegram_chat_id", ""),
+                log_callback=add_log,
+                poll_interval=10
+            )
+            email_watcher = active_watcher
+            active_watcher.start()
+            add_log(f"✉️ Autonomous Gmail IMAP monitoring started for '{email_addr}'.", "SUCCESS")
+            return jsonify({"success": True, "mode": "direct_gmail"})
 
 def stop_monitoring_internal():
-    global email_watcher
+    global active_watcher, email_watcher
     with watcher_lock:
-        if email_watcher:
-            email_watcher.stop()
+        if active_watcher:
+            active_watcher.stop()
+            active_watcher = None
             email_watcher = None
 
 @app.route("/api/monitoring/stop", methods=["POST"])

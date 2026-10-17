@@ -1441,26 +1441,41 @@
                         <button class="btn-secondary" style="padding: 6px 12px; font-size: 11px;" onclick="testConnection()">⚡ Test IMAP</button>
                     </div>
 
-                    <div class="form-group">
-                        <label>Gmail Address</label>
-                        <input type="text" id="gmailAddress" placeholder="your.name@gmail.com" onchange="saveConfig(true)">
+                    <div class="form-group" style="background: rgba(14, 165, 233, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+                        <label style="font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 8px;">
+                            <span>⚙️ Architecture Mode</span>
+                        </label>
+                        <select id="monitoringMode" class="input-field" style="width: 100%; padding: 10px 12px; border-radius: 8px; background: #080d1a; color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.15); margin-top: 6px; cursor: pointer;" onchange="handleModeChange()">
+                            <option value="cloud_sync">☁️ Cloud Sync (Google Drive Synced Folder - 24/7 Safe, No PC Needed)</option>
+                            <option value="direct_gmail">✉️ Direct Gmail IMAP (Local Poller - Requires App Password)</option>
+                        </select>
+                        <div id="cloudSyncHint" style="font-size: 12px; color: #94a3b8; margin-top: 8px; line-height: 1.4;">
+                            ⚡ <strong>Recommended:</strong> Google Apps Script downloads resumes 24/7 in the cloud (safe from email flagging/PC off). When PC is turned on, Google Drive Desktop syncs them locally and ResumeFlow immediately logs & parses them into your Pipeline! Gmail Password not needed in this mode.
+                        </div>
                     </div>
 
-                    <div class="form-group">
-                        <label>
-                            <span>Google 16-Character App Password</span>
-                            <a href="javascript:void(0)" onclick="openGuideModal()">Password Setup Guide ↗</a>
-                        </label>
-                        <div class="input-wrap">
-                            <input type="password" id="appPassword" placeholder="abcd efgh ijkl mnop" onchange="saveConfig(true)">
-                            <button class="btn-inline-toggle" onclick="togglePasswordVisibility()">
-                                <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            </button>
+                    <div id="gmailCredentialsSection">
+                        <div class="form-group">
+                            <label>Gmail Address <span id="gmailReqBadge" style="font-size: 11px; color: var(--text-muted);">(Optional in Cloud Sync mode)</span></label>
+                            <input type="text" id="gmailAddress" placeholder="your.name@gmail.com" onchange="saveConfig(true)">
+                        </div>
+
+                        <div class="form-group">
+                            <label>
+                                <span>Google 16-Character App Password</span>
+                                <a href="javascript:void(0)" onclick="openGuideModal()">Password Setup Guide ↗</a>
+                            </label>
+                            <div class="input-wrap">
+                                <input type="password" id="appPassword" placeholder="abcd efgh ijkl mnop" onchange="saveConfig(true)">
+                                <button class="btn-inline-toggle" onclick="togglePasswordVisibility()">
+                                    <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label>Base Download Destination Directory</label>
+                        <label>Base / Synced Resume Folder (Google Drive or Local)</label>
                         <div class="input-wrap">
                             <input type="text" id="baseDirectory" placeholder="D:\\Resumes" onchange="saveConfig(true)">
                         </div>
@@ -1637,10 +1652,33 @@
         function openGuideModal() { document.getElementById('guideModal').classList.add('open'); }
         function closeGuideModal(e) { document.getElementById('guideModal').classList.remove('open'); }
 
+        function handleModeChange() {
+            const modeEl = document.getElementById('monitoringMode');
+            if (!modeEl) return;
+            const mode = modeEl.value;
+            const hint = document.getElementById('cloudSyncHint');
+            const creds = document.getElementById('gmailCredentialsSection');
+            const reqBadge = document.getElementById('gmailReqBadge');
+            if (mode === 'cloud_sync') {
+                if (hint) hint.innerHTML = '⚡ <strong>Cloud Sync Mode:</strong> Google Apps Script downloads resumes 24/7 in the cloud (safe from email flagging/PC off). When PC is turned on, Google Drive Desktop syncs them locally and ResumeFlow immediately logs & parses them into your Pipeline! Gmail Password not needed in this mode.';
+                if (creds) creds.style.opacity = '0.55';
+                if (reqBadge) reqBadge.innerText = '(Optional in Cloud Sync mode)';
+            } else {
+                if (hint) hint.innerHTML = '✉️ <strong>Direct Gmail Mode:</strong> Connects directly to Gmail via IMAP from this PC. Requires Gmail Address & 16-character Google App Password.';
+                if (creds) creds.style.opacity = '1';
+                if (reqBadge) reqBadge.innerText = '(Required for Direct IMAP)';
+            }
+        }
+
         async function loadConfig() {
             try {
                 const res = await fetch('/api/config');
                 const data = await res.json();
+                if (data.monitoring_mode && document.getElementById('monitoringMode')) {
+                    document.getElementById('monitoringMode').value = data.monitoring_mode;
+                }
+                handleModeChange();
+
                 document.getElementById('gmailAddress').value = data.gmail_address || '';
                 document.getElementById('appPassword').value = data.app_password || '';
                 document.getElementById('baseDirectory').value = data.base_directory || '';
@@ -1711,7 +1749,10 @@
         }
 
         async function saveConfig(silent = false) {
+            const modeEl = document.getElementById('monitoringMode');
+            const currentMode = modeEl ? modeEl.value : 'cloud_sync';
             const payload = {
+                monitoring_mode: currentMode,
                 gmail_address: document.getElementById('gmailAddress').value.trim(),
                 app_password: document.getElementById('appPassword').value.trim(),
                 base_directory: document.getElementById('baseDirectory').value.trim(),
@@ -1768,12 +1809,19 @@
         async function toggleMonitoring() {
             await saveConfig(true);
             const endpoint = isMonitoring ? '/api/monitoring/stop' : '/api/monitoring/start';
-            const res = await fetch(endpoint, { method: 'POST' });
+            const modeEl = document.getElementById('monitoringMode');
+            const currentMode = modeEl ? modeEl.value : 'cloud_sync';
+
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: currentMode })
+            });
             const data = await res.json();
             if (data.error) {
                 alert(data.error);
             } else {
-                showToast(isMonitoring ? 'Monitoring Stopped' : 'Monitoring Started');
+                showToast(isMonitoring ? 'Monitoring Stopped' : (currentMode === 'cloud_sync' ? '☁️ Cloud Sync Watcher Started' : '✉️ Gmail Monitoring Started'));
             }
             fetchStatus();
         }
@@ -1889,12 +1937,18 @@
 
                 if (isMonitoring) {
                     badge.className = 'status-pill active';
-                    statusText.innerText = 'MONITORING ACTIVE';
+                    if (data.mode === 'cloud_sync') {
+                        statusText.innerText = 'CLOUD SYNC ACTIVE';
+                        heroTitle.innerText = '☁️ Google Drive Cloud Sync Active';
+                        heroSubtitle.innerText = 'Watching synced folder 24/7. Resumes downloaded by Google Apps Script are indexed instantly.';
+                    } else {
+                        statusText.innerText = 'GMAIL IMAP ACTIVE';
+                        heroTitle.innerText = '✉️ Live Gmail Scanning Active';
+                        heroSubtitle.innerText = 'Actively fetching unread emails, routing applicants, and saving resumes.';
+                    }
                     globalBtn.className = 'btn-toggle-engine stop';
                     globalLabel.innerText = 'STOP ENGINE';
                     globalBtn.querySelector('svg').innerHTML = '<rect x="6" y="6" width="12" height="12"/>';
-                    heroTitle.innerText = 'Live Gmail Scanning Active';
-                    heroSubtitle.innerText = 'Actively fetching unread emails, routing applicants, and saving resumes.';
                 } else {
                     badge.className = 'status-pill idle';
                     statusText.innerText = 'ENGINE IDLE';

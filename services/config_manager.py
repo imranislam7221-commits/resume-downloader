@@ -20,6 +20,7 @@ class ConfigManager:
             "telegram_chat_id": "",
             "auto_start_monitoring": True,
             "auto_start_with_windows": True,
+            "monitoring_mode": "cloud_sync",
             "poll_interval": 10,
             "companies": [
                 {"name": "Google", "keyword": "google"},
