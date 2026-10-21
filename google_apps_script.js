@@ -62,11 +62,11 @@ function autoDownloadResumes() {
           const timeStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyyMMdd_HHmm");
 
           // সেন্ডারের পরিষ্কার নাম বের করা
-          let cleanSender = sender.replace(/<.*?>/, "").trim().replace(/[^a-zA-Z0-9_\- ]/g, "");
+          let cleanSender = sender.replace(/<.*?>/, "").trim().replace(/[^a-zA-Z0-9\- ]/g, "").replace(/\s+/g, " ");
           if (!cleanSender) cleanSender = "Candidate";
 
           // পদের নাম / সাবজেক্ট লাইন পরিষ্কার করা (যাতে লোকাল পিসিতে পদ অনুযায়ী ফোল্ডার হতে পারে)
-          let cleanSubject = subject.replace(/[^a-zA-Z0-9_\- ]/g, "").trim();
+          let cleanSubject = subject.replace(/[^a-zA-Z0-9\- ]/g, "").trim().replace(/\s+/g, " ");
           if (cleanSubject.length > 35) cleanSubject = cleanSubject.substring(0, 35).trim();
 
           for (let k = 0; k < attachments.length; k++) {
@@ -77,7 +77,7 @@ function autoDownloadResumes() {
             // এক্সটেনশন চেক
             const isMatch = ALLOWED_EXTENSIONS.some(ext => lowerName.endsWith(ext));
             if (isMatch) {
-              const uniqueFileName = timeStr + "_" + cleanSender + (cleanSubject ? "_" + cleanSubject : "") + "_" + originalName;
+              const uniqueFileName = timeStr + "_" + cleanSender + (cleanSubject ? "__" + cleanSubject : "") + "__" + originalName;
               
               // গুগল ড্রাইভে সেভ করা
               folder.createFile(att.copyBlob().setName(uniqueFileName));

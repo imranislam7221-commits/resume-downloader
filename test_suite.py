@@ -258,9 +258,136 @@ class ComprehensiveTestSuite(unittest.TestCase):
         cfg_res_final = client.get('/api/config')
         self.assertEqual(cfg_res_final.status_code, 401)
 
+    def test_config_manager_safe_merge(self):
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_merge_config.json")
+        cm = ConfigManager(cfg_path)
+        # 1. Initial save with telegram token and desktop toasts
+        cm.save_config({
+            "telegram_token": "token_123",
+            "telegram_chat_id": "chat_456",
+            "enable_desktop_toasts": True,
+            "poll_interval": 15
+        })
+        # 2. Subsequent save with only companies and directory (partial save like web dashboard)
+        cm.save_config({
+            "base_directory": "D:\\Resumes_Test",
+            "companies": [{"name": "Apple", "keyword": "apple"}]
+        })
+        # 3. Verify telegram_token and other fields were not erased
+        loaded = cm.load_config()
+        self.assertEqual(loaded.get("telegram_token"), "token_123")
+        self.assertEqual(loaded.get("telegram_chat_id"), "chat_456")
+        self.assertEqual(loaded.get("poll_interval"), 15)
+        self.assertEqual(loaded.get("base_directory"), "D:\\Resumes_Test")
+        if os.path.exists(cfg_path):
+            os.remove(cfg_path)
+
+    def test_parse_cloud_filename_4_parts(self):
+        from services.folder_watcher import parse_cloud_filename
+        # 4-part Google Apps Script filename: Timestamp_Sender_Subject_Original.pdf
+        fname = "20261021_1200_Sarah Jenkins_Senior Python Developer_Sarah_CV.pdf"
+        name, orig, time_str = parse_cloud_filename(fname)
+        self.assertEqual(name, "Sarah Jenkins")
+        self.assertEqual(orig, "Sarah_CV.pdf")
+        self.assertEqual(time_str, "20261021_1200")
+
+    def test_update_manifest_row_isolation(self):
+        from web_server import update_manifest_row
+        test_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_manifest_dir")
+        os.makedirs(test_dir, exist_ok=True)
+        manifest_file = os.path.join(test_dir, "resumes_manifest.csv")
+
+        # Two different candidates both submitted "Resume.pdf" in different company folders
+        with open(manifest_file, "w", newline="", encoding="utf-8") as f:
+            f.write("Downloaded At,Company,Applicant Name,Applicant Email,Email Subject,Filename,File Size (KB),File Path,SHA256,Status,Notes\n")
+            f.write("2026-10-21 10:00:00,Google,Alice,alice@example.com,CV,Resume.pdf,120,D:\\Resumes\\Google\\Resume.pdf,hash1,New,Initial note\n")
+            f.write("2026-10-21 10:05:00,Microsoft,Bob,bob@example.com,CV,Resume.pdf,130,D:\\Resumes\\Microsoft\\Resume.pdf,hash2,New,Initial note\n")
+
+        # Update Alice's status
+        updated = update_manifest_row(test_dir, "D:\\Resumes\\Google\\Resume.pdf", "Shortlisted", "Promising candidate")
+        self.assertTrue(updated)
+
+        # Read back and verify Bob's status was NOT overwritten
+        with open(manifest_file, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        self.assertIn("Shortlisted", lines[1]) # Alice is Shortlisted
+        self.assertIn("New", lines[2])         # Bob must remain New!
+        self.assertNotIn("Shortlisted", lines[2])
+
+        if os.path.exists(test_dir):
+            import shutil
+            shutil.rmtree(test_dir, ignore_errors=True)
+
+    def test_is_safe_doc_path(self):
+        from web_server import is_safe_doc_path, app_dir
+        # Valid resume inside app_dir
+        valid_path = os.path.join(app_dir, "test.pdf")
+        self.assertTrue(is_safe_doc_path(valid_path))
+
+        # Path outside allowed directories
+        self.assertFalse(is_safe_doc_path(r"C:\Windows\System32\notepad.exe"))
+        self.assertFalse(is_safe_doc_path(r"C:\arbitrary\unauthorized\secret.pdf"))
+
     def test_desktop_app_master_password_constant(self):
         import app
         self.assertEqual(app.MASTER_PASSWORD, "Parvez7221")
+
+    def test_master_login_and_auth_status(self):
+        from web_server import app as flask_app
+        client = flask_app.test_client()
+
+        # 1. Initially unauthenticated
+        res = client.get("/api/auth_status")
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.json.get("authenticated"))
+
+        # 2. Login with wrong password
+        fail_res = client.post("/api/login", json={"password": "WrongPassword"})
+        self.assertEqual(fail_res.status_code, 401)
+        self.assertFalse(fail_res.json.get("success"))
+
+        # 3. Login with correct master password
+        ok_res = client.post("/api/login", json={"password": "Parvez7221"})
+        self.assertEqual(ok_res.status_code, 200)
+        self.assertTrue(ok_res.json.get("success"))
+
+        # 4. Check auth status now
+        auth_res = client.get("/api/auth_status")
+        self.assertTrue(auth_res.json.get("authenticated"))
+
+        # 5. Access protected endpoint
+        cfg_res = client.get("/api/config")
+        self.assertEqual(cfg_res.status_code, 200)
+
+        # 6. Logout
+        logout_res = client.post("/api/logout")
+        self.assertEqual(logout_res.status_code, 200)
+        auth_after = client.get("/api/auth_status")
+        self.assertFalse(auth_after.json.get("authenticated"))
+
+    def test_export_zip_and_manifest_endpoints(self):
+        from web_server import app as flask_app
+        import zipfile
+        import io
+
+        client = flask_app.test_client()
+        # Authenticate first
+        client.post("/api/login", json={"password": "Parvez7221"})
+
+        # Export manifest CSV header test
+        m_res = client.get("/api/manifest/export")
+        self.assertEqual(m_res.status_code, 200)
+        self.assertIn("attachment; filename=resumes_manifest.csv", m_res.headers.get("Content-Disposition", ""))
+
+        # Export ZIP archive test
+        z_res = client.get("/api/manifest/export_zip")
+        self.assertEqual(z_res.status_code, 200)
+        self.assertEqual(z_res.mimetype, "application/zip")
+
+        # Verify ZIP structure
+        zf = zipfile.ZipFile(io.BytesIO(z_res.data))
+        self.assertIn("resumes_manifest_summary.csv", zf.namelist())
 
 if __name__ == "__main__":
     unittest.main()

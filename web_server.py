@@ -109,6 +109,21 @@ def get_manifest_records(base_dir: str) -> List[Dict[str, Any]]:
             add_log(f"Notice reading manifest: {e}", "WARNING")
     return list(reversed(records))
 
+def is_safe_doc_path(file_path: str) -> bool:
+    if not file_path:
+        return False
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext not in SAFE_DOC_EXTENSIONS:
+        return False
+    try:
+        norm_path = os.path.normcase(os.path.abspath(file_path))
+        cfg = config_manager.load_config()
+        base_dir = os.path.normcase(os.path.abspath(cfg.get("base_directory", app_dir)))
+        app_base = os.path.normcase(os.path.abspath(app_dir))
+        return norm_path.startswith(base_dir) or norm_path.startswith(app_base)
+    except Exception:
+        return False
+
 def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_notes: str) -> bool:
     manifest_path = os.path.join(base_dir, "resumes_manifest.csv")
     if not os.path.exists(manifest_path):
@@ -116,6 +131,7 @@ def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_note
     rows = []
     updated = False
     try:
+        norm_target = os.path.normcase(os.path.abspath(file_path))
         with open(manifest_path, "r", encoding="utf-8") as f:
             reader = csv.reader(f)
             header = next(reader, None)
@@ -140,9 +156,9 @@ def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_note
                     row.append("")
                 row_path = row[path_idx] if path_idx < len(row) else ""
                 
-                norm_target = os.path.normcase(os.path.abspath(file_path))
                 norm_row = os.path.normcase(os.path.abspath(row_path)) if row_path else ""
-                if norm_target == norm_row or os.path.basename(file_path) == os.path.basename(row_path):
+                # Match specifically on unique full path to prevent cross-updating different candidates with same filename
+                if norm_row and norm_target == norm_row:
                     row[status_idx] = new_status
                     row[notes_idx] = new_notes
                     updated = True
@@ -342,13 +358,15 @@ def view_pdf_endpoint():
     file_path = request.args.get("path", "")
     if not file_path or not os.path.exists(file_path):
         return Response("Resume PDF file not found.", status=404)
-    if not file_path.lower().endswith(".pdf"):
-        return Response("Only PDF documents can be previewed directly.", status=400)
+    if not is_safe_doc_path(file_path) or not file_path.lower().endswith(".pdf"):
+        return Response("Only PDF documents in authorized directories can be previewed.", status=400)
     return send_file(file_path, mimetype="application/pdf")
 
 @app.route("/api/document/read", methods=["GET"])
 def read_doc_endpoint():
     file_path = request.args.get("path", "")
+    if not is_safe_doc_path(file_path):
+        return jsonify({"success": False, "error": "Access to file path denied."})
     res = read_resume_document(file_path)
     return jsonify(res)
 
@@ -356,6 +374,8 @@ def read_doc_endpoint():
 def save_doc_endpoint():
     data = request.json or {}
     file_path = data.get("file_path", "")
+    if not is_safe_doc_path(file_path):
+        return jsonify({"success": False, "error": "Access to file path denied."})
     content = data.get("content", "")
     save_as_new = data.get("save_as_new", False)
 
@@ -371,11 +391,8 @@ def save_doc_endpoint():
 def open_native_endpoint():
     data = request.json or {}
     file_path = data.get("file_path", "")
-    if not file_path:
-        return jsonify({"success": False, "error": "No file path provided."})
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext not in SAFE_DOC_EXTENSIONS:
-        return jsonify({"success": False, "error": "Only resume documents can be opened."})
+    if not file_path or not is_safe_doc_path(file_path):
+        return jsonify({"success": False, "error": "Access to file path denied."})
     if os.path.exists(file_path):
         os.startfile(file_path)
         add_log(f"Opened '{os.path.basename(file_path)}' in native desktop application.", "INFO")
@@ -389,8 +406,13 @@ def test_connection_endpoint():
     app_pwd = "".join((data.get("password") or data.get("app_password", "")).split())
     if not email_addr or not app_pwd:
         cfg = config_manager.load_config()
-        email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
-        app_pwd = "".join((cfg.get("app_password", "")).split())
+        accs = cfg.get("accounts", [])
+        if accs and isinstance(accs, list) and isinstance(accs[0], dict):
+            email_addr = (accs[0].get("email") or "").strip()
+            app_pwd = "".join((accs[0].get("app_password") or "").split())
+        if not email_addr or not app_pwd:
+            email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+            app_pwd = "".join((cfg.get("app_password", "")).split())
     if not email_addr or not app_pwd:
         return jsonify({"success": False, "error": "Email and 16-character App Password are required."})
     try:
@@ -434,7 +456,12 @@ def export_manifest():
     manifest_path = os.path.join(base_dir, "resumes_manifest.csv")
     if os.path.exists(manifest_path):
         return send_file(manifest_path, as_attachment=True, download_name="resumes_manifest.csv")
-    return Response("Downloaded At,Company,Applicant Name,Applicant Email,Email Subject,Filename,File Size (KB),File Path,SHA256,Status,Notes\n", mimetype="text/csv")
+    headers = {"Content-Disposition": "attachment; filename=resumes_manifest.csv"}
+    return Response(
+        "Downloaded At,Company,Applicant Name,Applicant Email,Email Subject,Filename,File Size (KB),File Path,SHA256,Status,Notes\n",
+        mimetype="text/csv",
+        headers=headers
+    )
 
 @app.route("/api/manifest/export_zip", methods=["GET"])
 def export_zip_endpoint():
@@ -483,12 +510,17 @@ def export_zip_endpoint():
 def scan_now_endpoint():
     global active_watcher
     with watcher_lock:
-        if active_watcher and active_watcher.thread and active_watcher.thread.is_alive():
+        if not (active_watcher and active_watcher.thread and active_watcher.thread.is_alive()):
+            res = start_monitoring_internal()
+            if not res.get("success"):
+                return jsonify(res)
+        
+        if active_watcher and hasattr(active_watcher, "trigger_scan_now"):
             active_watcher.trigger_scan_now()
             add_log("Manual instant scan requested. Checking for new resumes...", "INFO")
             return jsonify({"success": True, "message": "Instant scan initiated!"})
         else:
-            return jsonify({"success": False, "message": "Monitoring engine is stopped. Please start ingestion first."})
+            return jsonify({"success": False, "message": "Monitoring engine could not be triggered."})
 
 @app.route("/api/open_folder", methods=["POST"])
 def open_base_folder():
@@ -503,11 +535,8 @@ def open_base_folder():
 def open_file():
     data = request.json or {}
     fpath = data.get("path", "")
-    if not fpath:
-        return jsonify({"success": False, "error": "No file path provided."})
-    ext = os.path.splitext(fpath)[1].lower()
-    if ext not in SAFE_DOC_EXTENSIONS:
-        return jsonify({"success": False, "error": "Only resume documents can be opened."})
+    if not fpath or not is_safe_doc_path(fpath):
+        return jsonify({"success": False, "error": "Access to file path denied."})
     if os.path.exists(fpath):
         os.startfile(fpath)
         return jsonify({"success": True})
@@ -516,13 +545,30 @@ def open_file():
 @app.route("/api/monitoring/status", methods=["GET"])
 def monitoring_status():
     global active_watcher
+    cfg = config_manager.load_config()
+    base_dir = cfg.get("base_directory", app_dir)
+    records = get_manifest_records(base_dir)
+    harvested_count = len(records)
+    matched_candidates = len(set(
+        (r.get("Applicant Email") or r.get("Applicant Name") or "").strip().lower()
+        for r in records
+        if (r.get("Applicant Name") or r.get("Applicant Email"))
+    ))
+
     with watcher_lock:
         is_active = (active_watcher is not None and active_watcher.thread is not None and active_watcher.thread.is_alive())
         dups = active_watcher.duplicates_prevented if active_watcher else 0
         cls_name = active_watcher.__class__.__name__ if active_watcher else "None"
         mode = "cloud_sync" if cls_name == "FolderWatcher" else ("direct_gmail" if cls_name == "EmailWatcher" else "idle")
+        scanned_count = getattr(active_watcher, 'scanned_count', 0)
+        matched_live = getattr(active_watcher, 'matched_count', 0)
+
     with log_lock:
         recent_logs = list(log_messages[-100:])
+
+    total_scanned = max(scanned_count, harvested_count)
+    total_matched = max(matched_live, matched_candidates)
+
     return jsonify({
         "is_monitoring": is_active,
         "mode": mode,
@@ -530,79 +576,88 @@ def monitoring_status():
         "duplicates_prevented": dups,
         "logs": recent_logs,
         "stats": {
+            "scanned_emails": total_scanned,
+            "matched_emails": total_matched,
+            "harvested_resumes": harvested_count,
             "duplicates_prevented": dups
         }
     })
 
-@app.route("/api/monitoring/start", methods=["POST"])
-def start_monitoring():
+def start_monitoring_internal(mode: Optional[str] = None, base_dir: Optional[str] = None) -> Dict[str, Any]:
     global active_watcher, email_watcher
-    req_data = request.json or {}
     cfg = config_manager.load_config()
 
-    mode = req_data.get("mode") or cfg.get("monitoring_mode", "cloud_sync")
-    base_dir = (req_data.get("base_directory") or cfg.get("base_directory", app_dir)).strip()
+    mode = mode or cfg.get("monitoring_mode", "cloud_sync")
+    base_dir = (base_dir or cfg.get("base_directory", app_dir)).strip()
     
+    if active_watcher and active_watcher.thread and active_watcher.thread.is_alive():
+        return {"success": True, "message": "Monitoring is already active.", "mode": mode}
+
+    if mode == "cloud_sync":
+        if not base_dir:
+            return {"success": False, "error": "Please configure Base / Google Drive Synced Directory."}
+        os.makedirs(base_dir, exist_ok=True)
+        active_watcher = FolderWatcher(
+            watch_dir=base_dir,
+            companies=cfg.get("companies", []),
+            create_subfolders=cfg.get("create_subfolders", True),
+            enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
+            telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
+            telegram_chat_id=cfg.get("telegram_chat_id", ""),
+            log_callback=add_log,
+            poll_interval=5
+        )
+        email_watcher = active_watcher
+        active_watcher.start()
+        add_log(f"☁️ Cloud Sync Folder Watcher started. Monitoring: '{base_dir}' with Auto Title-Sorting.", "SUCCESS")
+        return {"success": True, "mode": "cloud_sync"}
+
+    else:
+        # direct_gmail mode (supports multiple accounts)
+        accounts = cfg.get("accounts", [])
+        if not accounts:
+            email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
+            app_pwd = "".join((cfg.get("app_password", "")).split())
+            if email_addr and app_pwd:
+                accounts = [{"email": email_addr, "app_password": app_pwd}]
+
+        valid_accounts = [
+            a for a in accounts
+            if isinstance(a, dict) and a.get("email") and a.get("app_password")
+        ]
+
+        if not valid_accounts or not base_dir:
+            return {
+                "success": False,
+                "error": "Direct Gmail mode requires at least one configured Gmail account (with 16-char App Password) and Local Directory."
+            }
+
+        active_watcher = EmailWatcher(
+            accounts=valid_accounts,
+            base_dir=base_dir,
+            companies=cfg.get("companies", []),
+            create_subfolders=cfg.get("create_subfolders", True),
+            prefix_applicant_name=cfg.get("prefix_applicant_name", True),
+            enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
+            telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
+            telegram_chat_id=cfg.get("telegram_chat_id", ""),
+            log_callback=add_log,
+            poll_interval=10
+        )
+        email_watcher = active_watcher
+        active_watcher.start()
+        acc_list_str = ", ".join([a.get("email", "") for a in valid_accounts])
+        add_log(f"✉️ Autonomous Gmail IMAP monitoring started for {len(valid_accounts)} account(s): [{acc_list_str}].", "SUCCESS")
+        return {"success": True, "mode": "direct_gmail", "accounts_count": len(valid_accounts)}
+
+@app.route("/api/monitoring/start", methods=["POST"])
+def start_monitoring():
+    req_data = request.json or {}
+    mode = req_data.get("mode")
+    base_dir = req_data.get("base_directory")
     with watcher_lock:
-        if active_watcher and active_watcher.thread and active_watcher.thread.is_alive():
-            return jsonify({"success": True, "message": "Monitoring is already active."})
-
-        if mode == "cloud_sync":
-            if not base_dir:
-                return jsonify({"success": False, "error": "Please configure Base / Google Drive Synced Directory."})
-            os.makedirs(base_dir, exist_ok=True)
-            active_watcher = FolderWatcher(
-                watch_dir=base_dir,
-                companies=cfg.get("companies", []),
-                create_subfolders=cfg.get("create_subfolders", True),
-                enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
-                telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
-                telegram_chat_id=cfg.get("telegram_chat_id", ""),
-                log_callback=add_log,
-                poll_interval=5
-            )
-            email_watcher = active_watcher
-            active_watcher.start()
-            add_log(f"☁️ Cloud Sync Folder Watcher started. Monitoring: '{base_dir}' with Auto Title-Sorting.", "SUCCESS")
-            return jsonify({"success": True, "mode": "cloud_sync"})
-
-        else:
-            # direct_gmail mode (supports multiple accounts)
-            accounts = cfg.get("accounts", [])
-            if not accounts:
-                email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
-                app_pwd = "".join((cfg.get("app_password", "")).split())
-                if email_addr and app_pwd:
-                    accounts = [{"email": email_addr, "app_password": app_pwd}]
-
-            valid_accounts = [
-                a for a in accounts
-                if isinstance(a, dict) and a.get("email") and a.get("app_password")
-            ]
-
-            if not valid_accounts or not base_dir:
-                return jsonify({
-                    "success": False,
-                    "error": "Direct Gmail mode requires at least one configured Gmail account (with 16-char App Password) and Local Directory."
-                })
-
-            active_watcher = EmailWatcher(
-                accounts=valid_accounts,
-                base_dir=base_dir,
-                companies=cfg.get("companies", []),
-                create_subfolders=cfg.get("create_subfolders", True),
-                prefix_applicant_name=cfg.get("prefix_applicant_name", True),
-                enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
-                telegram_token=cfg.get("telegram_bot_token") or cfg.get("telegram_token", ""),
-                telegram_chat_id=cfg.get("telegram_chat_id", ""),
-                log_callback=add_log,
-                poll_interval=10
-            )
-            email_watcher = active_watcher
-            active_watcher.start()
-            acc_list_str = ", ".join([a.get("email", "") for a in valid_accounts])
-            add_log(f"✉️ Autonomous Gmail IMAP monitoring started for {len(valid_accounts)} account(s): [{acc_list_str}].", "SUCCESS")
-            return jsonify({"success": True, "mode": "direct_gmail", "accounts_count": len(valid_accounts)})
+        res = start_monitoring_internal(mode=mode, base_dir=base_dir)
+        return jsonify(res)
 
 def stop_monitoring_internal():
     global active_watcher, email_watcher

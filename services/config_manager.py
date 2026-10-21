@@ -73,25 +73,44 @@ class ConfigManager:
 
     def save_config(self, data: Dict[str, Any]) -> bool:
         try:
+            # Load existing config to merge and avoid wiping omitted fields
+            existing = self.load_config()
+            merged = {**existing, **data}
+
             # Synchronize accounts and top-level fields
             accounts = data.get("accounts")
-            if isinstance(accounts, list) and accounts and isinstance(accounts[0], dict):
-                data["email"] = accounts[0].get("email", "")
-                data["gmail_address"] = accounts[0].get("email", "")
-                data["app_password"] = accounts[0].get("app_password", "")
-            else:
-                email_val = (data.get("email") or data.get("gmail_address", "")).strip()
-                data["email"] = email_val
-                data["gmail_address"] = email_val
-                if email_val or data.get("app_password"):
-                    data["accounts"] = [{"email": email_val, "app_password": data.get("app_password", "")}]
+            if accounts is None:
+                accounts = existing.get("accounts", [])
 
-            tele_tok = data.get("telegram_token") or data.get("telegram_bot_token", "")
-            data["telegram_token"] = tele_tok
-            data["telegram_bot_token"] = tele_tok
+            if isinstance(accounts, list) and accounts and isinstance(accounts[0], dict):
+                merged["accounts"] = accounts
+                merged["email"] = accounts[0].get("email", "")
+                merged["gmail_address"] = accounts[0].get("email", "")
+                merged["app_password"] = accounts[0].get("app_password", "")
+            else:
+                email_val = (data.get("email") or data.get("gmail_address") or existing.get("email", "")).strip()
+                pwd_val = data.get("app_password") if "app_password" in data else existing.get("app_password", "")
+                merged["email"] = email_val
+                merged["gmail_address"] = email_val
+                merged["app_password"] = pwd_val
+                if email_val or pwd_val:
+                    merged["accounts"] = [{"email": email_val, "app_password": pwd_val}]
+
+            # Synchronize telegram token keys
+            tele_tok = (
+                data.get("telegram_token")
+                or data.get("telegram_bot_token")
+                or existing.get("telegram_token")
+                or existing.get("telegram_bot_token", "")
+            )
+            merged["telegram_token"] = tele_tok
+            merged["telegram_bot_token"] = tele_tok
+
+            if "telegram_chat_id" not in data and "telegram_chat_id" in existing:
+                merged["telegram_chat_id"] = existing["telegram_chat_id"]
 
             with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
+                json.dump(merged, f, indent=4)
             return True
         except Exception:
             return False

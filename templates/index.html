@@ -1232,11 +1232,15 @@
                     <p id="heroSubtitle">Monitors Gmail 24/7 in real time, routes candidate applications to company folders, and logs full audit trails automatically.</p>
                 </div>
                 <div class="hero-controls">
-                    <button class="btn-secondary" onclick="openBaseFolder()">
+                    <button class="btn-primary" onclick="triggerScanNow()" title="Trigger immediate scan of inboxes or synced folder">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        <span>Scan Now</span>
+                    </button>
+                    <button class="btn-secondary" onclick="openBaseFolder()" title="Open local resume storage folder">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                         <span>Open Folder</span>
                     </button>
-                    <button class="btn-primary" onclick="testConnection()">
+                    <button class="btn-secondary" onclick="testConnection()" title="Verify IMAP connection credentials">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                         <span>Test IMAP</span>
                     </button>
@@ -1359,11 +1363,19 @@
                         <div class="card-subtitle">Search, filter, and inspect downloaded applicant files</div>
                     </div>
                     <div class="vault-actions">
-                        <button class="btn-secondary" onclick="openBaseFolder()">
+                        <button class="btn-secondary" onclick="triggerScanNow()" title="Trigger immediate scan for resumes">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            <span>Scan Now</span>
+                        </button>
+                        <button class="btn-secondary" onclick="openBaseFolder()" title="Open local resume storage folder">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
                             <span>Open Folder</span>
                         </button>
-                        <a href="/api/manifest/export" class="btn-primary" style="text-decoration: none;">
+                        <button class="btn-secondary" onclick="openZipExportModal()" title="Export all resumes or by company as a ZIP archive">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                            <span>Export ZIP</span>
+                        </button>
+                        <a href="/api/manifest/export" class="btn-primary" style="text-decoration: none;" title="Download complete applicant audit trail CSV">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                             <span>Export CSV</span>
                         </a>
@@ -1393,7 +1405,7 @@
                             </tr>
                         </thead>
                         <tbody id="manifestBody">
-                            <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 36px;">No resumes harvested yet.</td></tr>
+                            <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 36px;">No resumes harvested yet.</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1548,6 +1560,44 @@
                             <input type="checkbox" id="prefixApplicantName" checked onchange="saveConfig(true)">
                             <span class="slider"></span>
                         </label>
+                    </div>
+
+                    <div class="toggle-box">
+                        <div class="toggle-info">
+                            <h4>Windows Desktop Toast Alerts</h4>
+                            <p>Plays native Windows sound and popup when a new resume is saved</p>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <button type="button" class="btn-secondary" style="padding: 4px 10px; font-size: 11px;" onclick="testDesktopToast()">Test Toast</button>
+                            <label class="switch">
+                                <input type="checkbox" id="enableDesktopToasts" checked onchange="saveConfig(true)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Telegram Mobile Alerts Section -->
+                    <div style="margin-top: 18px; padding: 14px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <label style="font-weight: 700; color: #38bdf8; font-size: 13px; display: flex; align-items: center; gap: 6px; margin: 0;">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                                <span>Telegram Mobile Alerts</span>
+                            </label>
+                            <button type="button" class="btn-secondary" style="padding: 4px 10px; font-size: 11px;" onclick="testTelegramAlert()">⚡ Test Bot</button>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div>
+                                <label style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Bot Token (from @BotFather)</label>
+                                <input type="password" id="telegramBotToken" placeholder="123456:ABC-DEF1234..." style="width: 100%; background: var(--surface-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 7px 10px; color: var(--text-title); font-size: 12px;" onchange="saveConfig(true)">
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; display: block;">Telegram Chat ID</label>
+                                <input type="text" id="telegramChatId" placeholder="e.g. 123456789" style="width: 100%; background: var(--surface-input); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 7px 10px; color: var(--text-title); font-size: 12px;" onchange="saveConfig(true)">
+                            </div>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
+                            Receive instant alerts on your phone whenever a candidate sends a resume.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1723,6 +1773,15 @@
                 }
                 if (data.prefix_applicant_name !== undefined) {
                     document.getElementById('prefixApplicantName').checked = data.prefix_applicant_name;
+                }
+                if (data.enable_desktop_toasts !== undefined && document.getElementById('enableDesktopToasts')) {
+                    document.getElementById('enableDesktopToasts').checked = data.enable_desktop_toasts;
+                }
+                if (document.getElementById('telegramBotToken')) {
+                    document.getElementById('telegramBotToken').value = data.telegram_bot_token || data.telegram_token || '';
+                }
+                if (document.getElementById('telegramChatId')) {
+                    document.getElementById('telegramChatId').value = data.telegram_chat_id || '';
                 }
 
                 // Startup Status
@@ -1900,6 +1959,10 @@
                 base_directory: document.getElementById('baseDirectory').value.trim(),
                 create_subfolders: document.getElementById('createSubfolders').checked,
                 prefix_applicant_name: document.getElementById('prefixApplicantName').checked,
+                enable_desktop_toasts: document.getElementById('enableDesktopToasts') ? document.getElementById('enableDesktopToasts').checked : true,
+                telegram_bot_token: document.getElementById('telegramBotToken') ? document.getElementById('telegramBotToken').value.trim() : '',
+                telegram_token: document.getElementById('telegramBotToken') ? document.getElementById('telegramBotToken').value.trim() : '',
+                telegram_chat_id: document.getElementById('telegramChatId') ? document.getElementById('telegramChatId').value.trim() : '',
                 auto_start_monitoring: true,
                 companies: getRules()
             };
@@ -1913,6 +1976,37 @@
             document.getElementById('summaryDir').innerText = payload.base_directory || 'Not configured';
             if (!silent) showToast('Configuration Saved Successfully');
             updateRuleCount();
+        }
+
+        async function testDesktopToast() {
+            showToast('Dispatched Windows Toast test...');
+            try {
+                const res = await fetch('/api/test_toast', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('✅ Windows Desktop Toast displayed with sound!');
+                } else {
+                    alert('Toast test notification failed: ' + (data.error || 'Check notification permissions.'));
+                }
+            } catch (e) {
+                alert('Toast error: ' + e);
+            }
+        }
+
+        async function testTelegramAlert() {
+            await saveConfig(true);
+            showToast('Testing Telegram alert dispatch...');
+            try {
+                const res = await fetch('/api/test_telegram', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('✅ Telegram notification test successful! Check your app.');
+                } else {
+                    alert('Telegram Test Failed:\n' + (data.message || data.error));
+                }
+            } catch (e) {
+                alert('Telegram error: ' + e);
+            }
         }
 
         async function toggleWindowsStartup() {
@@ -2028,30 +2122,58 @@
             countLabel.innerText = `Showing ${records.length} of ${allManifestRecords.length} records`;
 
             if (!records || records.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 40px;">No resumes match your filter.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 40px;">No resumes match your filter.</td></tr>';
                 return;
             }
-            tbody.innerHTML = records.map(r => `
+            tbody.innerHTML = records.map(r => {
+                const status = r['Status'] || 'New';
+                const statusClass = getStatusClass(status);
+                const notes = r['Notes'] || '';
+                const fpath = r['File Path'] || '';
+                const fname = r['Filename'] || '';
+                const appName = r['Applicant Name'] || 'Applicant';
+                const comp = r['Company'] || 'General';
+                const isPdf = fname.toLowerCase().endsWith('.pdf');
+                const canEdit = fname.toLowerCase().endsWith('.pdf') || fname.toLowerCase().endsWith('.docx') || fname.toLowerCase().endsWith('.txt') || fname.toLowerCase().endsWith('.rtf');
+
+                return `
                 <tr>
                     <td style="color: var(--text-muted); font-size: 12px;">${escapeHtml(r['Downloaded At'] || '')}</td>
-                    <td><span class="company-tag">${escapeHtml(r['Company'] || 'General')}</span></td>
-                    <td style="font-weight: 700; color: var(--text-title);">${escapeHtml(r['Applicant Name'] || 'Applicant')}</td>
+                    <td><span class="company-tag">${escapeHtml(comp)}</span></td>
+                    <td style="font-weight: 700; color: var(--text-title);">${escapeHtml(appName)}</td>
                     <td style="color: var(--text-secondary); font-size: 12px;">${escapeHtml(r['Applicant Email'] || '')}</td>
                     <td>
                         <span class="file-pill">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                            ${escapeHtml(r['Filename'] || '')}
+                            ${escapeHtml(fname)}
                         </span>
                         <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">${escapeHtml(r['File Size (KB)'] || '0')} KB</span>
                     </td>
                     <td>
-                        <button class="btn-open-file" onclick="openSpecificFile('${escapeJs(r['File Path'])}')">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                            <span>Open</span>
+                        <select class="status-select-pill ${statusClass}" onchange="updateCandidateStatus('${escapeJs(fpath)}', this.value, '${escapeJs(notes)}')">
+                            <option value="New" ${status === 'New' ? 'selected' : ''}>New</option>
+                            <option value="Shortlisted" ${status === 'Shortlisted' ? 'selected' : ''}>Shortlisted</option>
+                            <option value="Interview" ${status === 'Interview' ? 'selected' : ''}>Interview</option>
+                            <option value="Hired" ${status === 'Hired' ? 'selected' : ''}>Hired</option>
+                            <option value="Rejected" ${status === 'Rejected' ? 'selected' : ''}>Rejected</option>
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn-note ${notes ? 'has-note' : ''}" onclick="openNotesModal('${escapeJs(fpath)}', '${escapeJs(appName)}', '${escapeJs(status)}', '${escapeJs(notes)}')" title="${escapeHtml(notes || 'Add note')}">
+                            <span>📝</span>
+                            <span>${notes ? 'Note' : '+'}</span>
                         </button>
                     </td>
+                    <td>
+                        <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
+                            ${isPdf ? `<button class="btn-action-small" onclick="previewPdf('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')" title="Preview PDF in Browser">Preview</button>` : ''}
+                            ${canEdit ? `<button class="btn-action-small btn-edit" onclick="openDocumentEditor('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')" title="Edit resume in Universal Editor">Edit</button>` : ''}
+                            <button class="btn-action-small btn-ghost" onclick="openSpecificFile('${escapeJs(fpath)}')" title="Open file on PC">Open</button>
+                        </div>
+                    </td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function renderRecentCandidatesFeed(records) {
@@ -2061,18 +2183,31 @@
                 return;
             }
             const latest = records.slice(0, 5);
-            feed.innerHTML = latest.map(r => `
+            feed.innerHTML = latest.map(r => {
+                const fname = r['Filename'] || '';
+                const appName = r['Applicant Name'] || 'Applicant';
+                const comp = r['Company'] || 'General';
+                const fpath = r['File Path'] || '';
+                const isPdf = fname.toLowerCase().endsWith('.pdf');
+                const canEdit = fname.toLowerCase().endsWith('.pdf') || fname.toLowerCase().endsWith('.docx') || fname.toLowerCase().endsWith('.txt') || fname.toLowerCase().endsWith('.rtf');
+
+                return `
                 <div style="background: rgba(11, 17, 32, 0.6); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <span class="company-tag">${escapeHtml(r['Company'] || 'General')}</span>
+                        <span class="company-tag">${escapeHtml(comp)}</span>
                         <div>
-                            <div style="font-size: 13px; font-weight: 700; color: var(--text-title);">${escapeHtml(r['Applicant Name'] || 'Applicant')}</div>
-                            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(r['Filename'] || '')} • ${escapeHtml(r['Downloaded At'] || '')}</div>
+                            <div style="font-size: 13px; font-weight: 700; color: var(--text-title);">${escapeHtml(appName)}</div>
+                            <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(fname)} • ${escapeHtml(r['Downloaded At'] || '')}</div>
                         </div>
                     </div>
-                    <button class="btn-open-file" onclick="openSpecificFile('${escapeJs(r['File Path'])}')">Open</button>
+                    <div style="display: flex; gap: 6px;">
+                        ${isPdf ? `<button class="btn-action-small" onclick="previewPdf('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')">Preview</button>` : ''}
+                        ${canEdit ? `<button class="btn-action-small btn-edit" onclick="openDocumentEditor('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')">Edit</button>` : ''}
+                        <button class="btn-action-small btn-ghost" onclick="openSpecificFile('${escapeJs(fpath)}')">Open</button>
+                    </div>
                 </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         async function fetchStatus() {
@@ -2306,14 +2441,19 @@
         }
 
         async function triggerScanNow() {
-            showToast('⚡ Scanning Gmail inbox now...');
-            const res = await fetch('/api/scan_now', { method: 'POST' });
-            const data = await res.json();
-            if (data.success) {
-                showToast('⚡ Inbox scan triggered!');
-                setTimeout(fetchManifest, 2000);
-            } else {
-                alert(data.message);
+            showToast('⚡ Triggering instant resume scan...');
+            try {
+                const res = await fetch('/api/scan_now', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('⚡ ' + (data.message || 'Instant scan initiated!'));
+                    setTimeout(fetchStatus, 800);
+                    setTimeout(fetchManifest, 1500);
+                } else {
+                    alert(data.message || data.error || 'Scan could not be started.');
+                }
+            } catch (err) {
+                alert('Scan request failed: ' + err);
             }
         }
 

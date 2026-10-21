@@ -215,10 +215,19 @@ class ResumeDownloaderApp(ctk.CTk):
         cred_data = self.credentials.get_data()
         rules = self.rules_table.get_rules()
         existing = self.config_manager.load_config()
+        accounts = existing.get("accounts", [])
+        if accounts and isinstance(accounts, list) and isinstance(accounts[0], dict):
+            accounts[0]["email"] = cred_data["gmail_address"]
+            accounts[0]["app_password"] = cred_data["app_password"]
+        else:
+            if cred_data["gmail_address"] or cred_data["app_password"]:
+                accounts = [{"email": cred_data["gmail_address"], "app_password": cred_data["app_password"]}]
+
         data = {
             **existing,
             **cred_data,
-            "poll_interval": 10,
+            "accounts": accounts,
+            "poll_interval": existing.get("poll_interval", 10),
             "companies": rules
         }
         self.config_manager.save_config(data)

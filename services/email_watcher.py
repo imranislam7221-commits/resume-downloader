@@ -84,6 +84,8 @@ class EmailWatcher:
         self.hash_lock = threading.Lock()
         self.manifest_lock = threading.Lock()
         self.duplicates_prevented = 0
+        self.scanned_count = 0
+        self.matched_count = 0
         self._load_existing_hashes()
 
     def _load_existing_hashes(self):
@@ -246,19 +248,29 @@ class EmailWatcher:
                                     if msg.uid in self.inspected_uids:
                                         continue
 
+                                    self.scanned_count += 1
                                     sender_raw = msg.from_ or ""
                                     applicant_name, applicant_email = parse_applicant_info(sender_raw)
                                     sender = sender_raw.lower()
                                     subject = (msg.subject or "").lower()
                                     matched_company = None
-
                                     for comp in self.companies:
                                         kw = comp.get("keyword", "").strip().lower()
                                         if kw and (kw in sender or kw in subject):
                                             matched_company = comp.get("name", "").strip()
                                             break
 
+                                    # Route unmatched applicant emails with attachments to 'General' (aligning with Cloud Sync)
+                                    if not matched_company:
+                                        has_resume_att = any(
+                                            att.filename and os.path.splitext(att.filename)[1].lower() in EXTENSIONS
+                                            for att in msg.attachments
+                                        )
+                                        if has_resume_att:
+                                            matched_company = "General"
+
                                     if matched_company:
+                                        self.matched_count += 1
                                         self.log(
                                             f"{tag} Applicant identified for '{matched_company}'! Name: '{applicant_name}' | Email: '{applicant_email}'",
                                             "INFO"
