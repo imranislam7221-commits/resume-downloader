@@ -226,8 +226,16 @@ class FolderWatcher:
                             full_path = dest_path
                             norm_path = os.path.normcase(full_path)
                             final_fname = os.path.basename(dest_path)
-                        except Exception as move_err:
-                            self.log(f"Notice: Could not move '{fname}' to subfolder '{company}': {move_err}", "WARNING")
+                        except Exception:
+                            # Transient lock by Google Drive streaming sync - retry once after short delay
+                            time.sleep(0.5)
+                            try:
+                                shutil.move(full_path, dest_path)
+                                full_path = dest_path
+                                norm_path = os.path.normcase(full_path)
+                                final_fname = os.path.basename(dest_path)
+                            except Exception as move_err:
+                                self.log(f"Notice: Could not move '{fname}' to subfolder '{company}': {move_err}", "WARNING")
 
                 self._record_manifest(company, applicant_name, final_fname, size_kb, full_path, sha256_val)
                 self.matched_count += 1
