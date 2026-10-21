@@ -9,6 +9,7 @@ from tkinter import messagebox
 from utils.icon_generator import generate_fallback_icon
 from services.config_manager import ConfigManager
 from services.email_watcher import EmailWatcher
+from services.folder_watcher import FolderWatcher
 from services.tray_service import TrayService
 from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
 
@@ -138,11 +139,13 @@ class ResumeDownloaderApp(ctk.CTk):
 
         self.log_console.log("System initialized. Autonomous engine ready.", "INFO")
 
-        # Auto-start monitoring if configured and credentials exist
+        # Auto-start monitoring if configured and credentials/path exist
         cfg = self.config_manager.load_config()
-        if cfg.get("auto_start_monitoring", True) and cfg.get("gmail_address") and cfg.get("app_password"):
+        mode = cfg.get("monitoring_mode", "cloud_sync")
+        can_auto_start = (mode == "cloud_sync" and cfg.get("base_directory")) or (mode == "direct_gmail" and cfg.get("gmail_address") and cfg.get("app_password"))
+        if cfg.get("auto_start_monitoring", True) and can_auto_start:
             self.after(1000, self.start_monitoring)
-            self.log_console.log("Auto-start monitoring activated.", "SUCCESS")
+            self.log_console.log(f"Auto-start monitoring activated ({mode}).", "SUCCESS")
 
         # Handle master password check and minimized startup
         if start_minimized:
@@ -242,13 +245,8 @@ class ResumeDownloaderApp(ctk.CTk):
         cred = self.credentials.get_data()
         rules = self.rules_table.get_rules()
         cfg = self.config_manager.load_config()
+        mode = cfg.get("monitoring_mode", "cloud_sync" if not cred.get("gmail_address") else "direct_gmail")
 
-        if not cred["gmail_address"]:
-            messagebox.showerror("Missing Input", "Please enter your Gmail address.")
-            return
-        if not cred["app_password"]:
-            messagebox.showerror("Missing Input", "Please enter your 16-character Google App Password.")
-            return
         if not cred["base_directory"]:
             messagebox.showerror("Missing Input", "Please select a Base Download Directory.")
             return
@@ -272,6 +270,31 @@ class ResumeDownloaderApp(ctk.CTk):
             hover_color="#dc2626"
         )
 
+        if mode == "cloud_sync":
+            self.email_watcher = FolderWatcher(
+                watch_dir=cred["base_directory"],
+                companies=rules,
+                create_subfolders=cfg.get("create_subfolders", True),
+                enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
+                telegram_token=cfg.get("telegram_token", "") or cfg.get("telegram_bot_token", ""),
+                telegram_chat_id=cfg.get("telegram_chat_id", ""),
+                log_callback=lambda msg, lvl="INFO": self.after(0, lambda: self.log_console.log(msg, lvl)),
+                poll_interval=5
+            )
+            self.email_watcher.start()
+            self.log_console.log(f"☁️ Cloud Sync Folder Watcher active. Monitoring: '{cred['base_directory']}'", "SUCCESS")
+            return
+
+        # Direct Gmail mode
+        if not cred["gmail_address"]:
+            messagebox.showerror("Missing Input", "Please enter your Gmail address.")
+            self.stop_monitoring()
+            return
+        if not cred["app_password"]:
+            messagebox.showerror("Missing Input", "Please enter your 16-character Google App Password.")
+            self.stop_monitoring()
+            return
+
         # Start watcher service
         self.email_watcher = EmailWatcher(
             email_addr=cred["gmail_address"],
@@ -282,9 +305,9 @@ class ResumeDownloaderApp(ctk.CTk):
             create_subfolders=cfg.get("create_subfolders", True),
             prefix_applicant_name=cfg.get("prefix_applicant_name", True),
             enable_desktop_toasts=cfg.get("enable_desktop_toasts", True),
-            telegram_token=cfg.get("telegram_token", ""),
+            telegram_token=cfg.get("telegram_token", "") or cfg.get("telegram_bot_token", ""),
             telegram_chat_id=cfg.get("telegram_chat_id", ""),
-            log_callback=lambda msg, lvl: self.after(0, lambda: self.log_console.log(msg, lvl)),
+            log_callback=lambda msg, lvl="INFO": self.after(0, lambda: self.log_console.log(msg, lvl)),
             on_error_callback=lambda err: self.after(0, self.stop_monitoring)
         )
         self.email_watcher.start()

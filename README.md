@@ -79,13 +79,24 @@ Gmail er standard password ekhane kaj korbe na, Google er security policy onujay
 
 ---
 
+## 🔒 Master Security Password
+The web dashboard and desktop workspace are secured with master encryption authentication:
+- **Default Master Password**: `Parvez7221`
+- Can be unlocked from the master login prompt or locked anytime via the top-bar **Lock** button.
+
+---
+
 ## 🛠 Key Features
 
-1. **Multi-Account Concurrent Ingestion**: Connect 2, 3, or unlimited Gmail inboxes simultaneously. Each inbox is monitored concurrently.
+1. **Multi-Account Concurrent Ingestion**: Connect 2, 3, or multiple Gmail inboxes simultaneously. Inboxes are checked concurrently with cross-account deduplication.
 2. **24/7 Cloud Resume Downloader**: Deploy `google_apps_script.js` to Google Cloud to ingest resumes 24/7 directly to Google Drive even when your PC is turned off.
-3. **Automated Title & Role Subfolder Sorting**: Resumes are automatically sorted into role/company-specific folders based on subject line keywords (e.g. `Developer/`, `Designer/`).
+3. **Automated Title & Role Subfolder Sorting**: Resumes are automatically sorted into role/company-specific folders based on subject line keywords (e.g. `Developer/`, `Google/`, `General/`).
 4. **Hardware-Level SHA-256 Deduplication**: Prevents duplicate downloads even if the same candidate emails multiple accounts or you move/cut previously downloaded files.
-5. **Universal Document Editor & Previewer**: View and edit `.pdf` and `.docx` resumes directly in the browser dashboard without Microsoft Word or Adobe Acrobat.
-6. **Modern Dark Theme Web Dashboard & Desktop GUI**: Choose between running the browser-based Recruitment Hub (`run_web.bat`) or the native desktop application (`run.bat`).
-7. **Instant Desktop & Telegram Alerts**: Get immediate Windows notifications with sound and optional instant Telegram alerts when a new candidate applies.
-8. **System Tray & Windows Boot Auto-Start**: Minimize to system tray or toggle automatic silent startup on Windows boot.
+5. **Interactive Recruitment Pipeline**: Manage applicants across 5 lifecycle stages directly in the Vault (`New`, `Shortlisted`, `Interview`, `Hired`, `Rejected`) with real-time on-disk CSV sync.
+6. **Recruiter Candidate Notes Modal**: Save interview notes, screening feedback, and salary expectations per candidate.
+7. **In-Dashboard Universal Document Editor**: View and edit `.pdf`, `.docx`, `.txt`, and `.rtf` resumes directly in the browser with find & replace, phone/email contact redaction, and local disk save.
+8. **PDF Browser Preview**: Live in-browser resume viewer without third-party software.
+9. **Instant "⚡ Scan Now" Trigger**: One-click immediate inbox and synced folder scan without waiting for scheduled polling loops.
+10. **📦 Resumes ZIP Archive Export**: One-click export of all harvested resumes or company-specific batches packaged into a clean ZIP archive with audit CSV.
+11. **Instant Desktop & Telegram Alerts**: Get immediate Windows notifications with sound and optional instant Telegram alerts when a new candidate applies.
+12. **System Tray & Windows Boot Auto-Start**: Minimize to system tray or toggle automatic silent startup on Windows boot.
