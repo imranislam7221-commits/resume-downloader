@@ -25,9 +25,14 @@ function autoDownloadResumes() {
       folder = DriveApp.getFolderById(SHARED_FOLDER_ID.trim());
     } else {
       const folders = DriveApp.getFoldersByName(FOLDER_NAME);
-      if (folders.hasNext()) {
-        folder = folders.next();
-      } else {
+      while (folders.hasNext()) {
+        const f = folders.next();
+        if (!f.isTrashed()) {
+          folder = f;
+          break;
+        }
+      }
+      if (!folder) {
         folder = DriveApp.createFolder(FOLDER_NAME);
       }
     }
@@ -43,8 +48,13 @@ function autoDownloadResumes() {
     const threads = GmailApp.search(query, 0, 30); // একসাথে ৩০টি ইমেইল পর্যন্ত চেক করবে
 
     if (threads.length === 0) {
+      Logger.log("ℹ️ No new unread applicant emails found.");
       return; // নতুন কোনো ইমেইল না থাকলে শেষ
     }
+
+    Logger.log("⚡ Found " + threads.length + " unread email thread(s) with attachments. Processing...");
+
+    let processedCount = 0;
 
     for (let i = 0; i < threads.length; i++) {
       const thread = threads[i];
@@ -61,8 +71,16 @@ function autoDownloadResumes() {
           // টাইমস্ট্যাম্প ফরম্যাট (e.g., 20261017_1030)
           const timeStr = Utilities.formatDate(date, Session.getScriptTimeZone(), "yyyyMMdd_HHmm");
 
-          // সেন্ডারের পরিষ্কার নাম বের করা
-          let cleanSender = sender.replace(/<.*?>/, "").trim().replace(/[^a-zA-Z0-9\- ]/g, "").replace(/\s+/g, " ");
+          // সেন্ডারের পরিষ্কার নাম বের করা (যদি display name না থাকে, ইমেইলের ইউজারনেম নেওয়া)
+          let cleanSender = "";
+          if (sender.includes("<")) {
+            cleanSender = sender.substring(0, sender.indexOf("<")).trim();
+          } else if (sender.includes("@")) {
+            cleanSender = sender.substring(0, sender.indexOf("@")).trim();
+          } else {
+            cleanSender = sender.trim();
+          }
+          cleanSender = cleanSender.replace(/[^a-zA-Z0-9\- ]/g, "").replace(/\s+/g, " ").trim();
           if (!cleanSender) cleanSender = "Candidate";
 
           // পদের নাম / সাবজেক্ট লাইন পরিষ্কার করা (যাতে লোকাল পিসিতে পদ অনুযায়ী ফোল্ডার হতে পারে)
@@ -77,10 +95,14 @@ function autoDownloadResumes() {
             // এক্সটেনশন চেক
             const isMatch = ALLOWED_EXTENSIONS.some(ext => lowerName.endsWith(ext));
             if (isMatch) {
-              const uniqueFileName = timeStr + "_" + cleanSender + (cleanSubject ? "__" + cleanSubject : "") + "__" + originalName;
+              // উইন্ডোজ ড্রাইভ ফাইলের নাম নিরাপদ করা (অবৈধ ক্যারেক্টার বাদ দিয়ে)
+              const safeOriginalName = originalName.replace(/[/\\?%*:|"<>]/g, "_").trim();
+              const uniqueFileName = timeStr + "_" + cleanSender + (cleanSubject ? "__" + cleanSubject : "") + "__" + safeOriginalName;
               
               // গুগল ড্রাইভে সেভ করা
               folder.createFile(att.copyBlob().setName(uniqueFileName));
+              processedCount++;
+              Logger.log("✅ Saved to Drive: " + uniqueFileName);
             }
           }
         }
@@ -90,6 +112,7 @@ function autoDownloadResumes() {
       thread.addLabel(label);
       thread.markRead();
     }
+    Logger.log("🎉 Successfully downloaded " + processedCount + " resume(s).");
   } catch (error) {
     Logger.log("Error during resume download: " + error.toString());
   }
