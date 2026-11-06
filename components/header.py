@@ -1,3 +1,4 @@
+import webbrowser
 import customtkinter as ctk
 
 class HeaderComponent(ctk.CTkFrame):
@@ -31,8 +32,24 @@ class HeaderComponent(ctk.CTkFrame):
         )
         sub_label.pack(anchor="w")
 
+        right_container = ctk.CTkFrame(self, fg_color="transparent")
+        right_container.grid(row=0, column=1, padx=18, pady=14, sticky="e")
+
+        self.btn_web = ctk.CTkButton(
+            right_container,
+            text="🌐 Web Dashboard",
+            width=130,
+            height=32,
+            corner_radius=8,
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            command=self.open_web_dashboard
+        )
+        self.btn_web.pack(side="left", padx=(0, 10))
+
         self.status_badge = ctk.CTkLabel(
-            self,
+            right_container,
             text="● ENGINE IDLE",
             font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
             fg_color="#1e293b",
@@ -41,7 +58,13 @@ class HeaderComponent(ctk.CTkFrame):
             padx=14,
             pady=7
         )
-        self.status_badge.grid(row=0, column=1, padx=18, pady=14, sticky="e")
+        self.status_badge.pack(side="left")
+
+    def open_web_dashboard(self):
+        try:
+            webbrowser.open("http://localhost:5000")
+        except Exception:
+            pass
 
     def set_monitoring_state(self, active: bool):
         if active:
