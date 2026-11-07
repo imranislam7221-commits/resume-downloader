@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 class ConfigManager:
     def __init__(self, config_path: str):
@@ -8,6 +8,7 @@ class ConfigManager:
 
     def get_defaults(self) -> Dict[str, Any]:
         return {
+            "master_password": "Parvez7221",
             "email": "",
             "gmail_address": "",
             "app_password": "",
@@ -121,8 +122,38 @@ class ConfigManager:
             if "telegram_chat_id" not in data and "telegram_chat_id" in existing:
                 merged["telegram_chat_id"] = existing["telegram_chat_id"]
 
+            if "master_password" in data:
+                merged["master_password"] = str(data["master_password"]).strip()
+
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(merged, f, indent=4)
             return True
         except Exception:
             return False
+
+    def get_master_password(self) -> str:
+        env_pwd = os.environ.get("RESUMEFLOW_MASTER_PASSWORD")
+        if env_pwd:
+            return env_pwd.strip()
+        cfg = self.load_config()
+        return str(cfg.get("master_password") or "Parvez7221").strip()
+
+    def verify_master_password(self, password: str) -> bool:
+        if not password:
+            return False
+        return password.strip() == self.get_master_password()
+
+    def change_master_password(self, old_password: str, new_password: str) -> Tuple[bool, str]:
+        old_p = (old_password or "").strip()
+        new_p = (new_password or "").strip()
+        if not self.verify_master_password(old_p):
+            return False, "Old password does not match current master password."
+        if len(new_p) < 4:
+            return False, "New password must be at least 4 characters long."
+        if old_p == new_p:
+            return False, "New password must be different from current password."
+        
+        ok = self.save_config({"master_password": new_p})
+        if ok:
+            return True, "Master password changed successfully!"
+        return False, "Failed to write new password to configuration."

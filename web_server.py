@@ -88,7 +88,7 @@ def require_master_password():
 def api_login():
     data = request.json or {}
     pwd = (data.get("password") or "").strip()
-    if pwd == MASTER_PASSWORD:
+    if config_manager.verify_master_password(pwd):
         session["authenticated"] = True
         add_log("Master security key verified. Dashboard unlocked.", "SUCCESS")
         return jsonify({"success": True, "message": "Authenticated successfully."})
@@ -349,6 +349,7 @@ def index():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     cfg = config_manager.load_config()
+    cfg.pop("master_password", None)  # Prevent exposing master password over GET API
     email_val = cfg.get("email") or cfg.get("gmail_address", "")
     cfg["email"] = email_val
     cfg["gmail_address"] = email_val
@@ -359,6 +360,7 @@ def get_config():
 def save_config_endpoint():
     try:
         data = request.json or {}
+        data.pop("master_password", None)  # Guard: password can only be updated via /api/change_password
         email_val = data.get("email") or data.get("gmail_address", "")
         if email_val:
             data["email"] = email_val
@@ -370,6 +372,28 @@ def save_config_endpoint():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/change_password", methods=["POST"])
+def change_password_endpoint():
+    data = request.json or {}
+    old_pwd = (data.get("old_password") or "").strip()
+    new_pwd = (data.get("new_password") or "").strip()
+    confirm_pwd = (data.get("confirm_password") or "").strip()
+
+    if not old_pwd:
+        return jsonify({"success": False, "error": "Please enter your old master password."}), 400
+    if not new_pwd:
+        return jsonify({"success": False, "error": "Please enter a new master password."}), 400
+    if new_pwd != confirm_pwd:
+        return jsonify({"success": False, "error": "New password and confirmation do not match."}), 400
+
+    ok, msg = config_manager.change_master_password(old_pwd, new_pwd)
+    if ok:
+        add_log("Master security password successfully changed from settings.", "SUCCESS")
+        return jsonify({"success": True, "message": msg})
+    else:
+        add_log(f"Failed password change attempt: {msg}", "WARNING")
+        return jsonify({"success": False, "error": msg}), 400
 
 @app.route("/api/startup/status", methods=["GET"])
 def startup_status():

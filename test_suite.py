@@ -446,5 +446,65 @@ class ComprehensiveTestSuite(unittest.TestCase):
         zf = zipfile.ZipFile(io.BytesIO(z_res.data))
         self.assertIn("resumes_manifest_summary.csv", zf.namelist())
 
+    def test_change_master_password_flow(self):
+        from web_server import app as flask_app, config_manager
+        client = flask_app.test_client()
+
+        # 1. Unauthenticated change attempt blocked
+        unauth_res = client.post("/api/change_password", json={
+            "old_password": "Parvez7221",
+            "new_password": "NewSecretPass7221",
+            "confirm_password": "NewSecretPass7221"
+        })
+        self.assertEqual(unauth_res.status_code, 401)
+
+        # 2. Authenticate
+        client.post("/api/login", json={"password": "Parvez7221"})
+
+        # 3. Mismatched confirmation
+        mismatch_res = client.post("/api/change_password", json={
+            "old_password": "Parvez7221",
+            "new_password": "NewSecretPass7221",
+            "confirm_password": "DifferentPass"
+        })
+        self.assertEqual(mismatch_res.status_code, 400)
+        self.assertIn("do not match", mismatch_res.json.get("error", ""))
+
+        # 4. Wrong old password
+        wrong_old_res = client.post("/api/change_password", json={
+            "old_password": "WrongOldPassword",
+            "new_password": "NewSecretPass7221",
+            "confirm_password": "NewSecretPass7221"
+        })
+        self.assertEqual(wrong_old_res.status_code, 400)
+        self.assertIn("Old password does not match", wrong_old_res.json.get("error", ""))
+
+        # 5. Successful change
+        success_res = client.post("/api/change_password", json={
+            "old_password": "Parvez7221",
+            "new_password": "NewSecretPass7221",
+            "confirm_password": "NewSecretPass7221"
+        })
+        self.assertEqual(success_res.status_code, 200)
+        self.assertTrue(success_res.json.get("success"))
+
+        # 6. Verify old password fails to log in
+        client.post("/api/logout")
+        fail_login = client.post("/api/login", json={"password": "Parvez7221"})
+        self.assertEqual(fail_login.status_code, 401)
+
+        # 7. Verify new password succeeds
+        ok_login = client.post("/api/login", json={"password": "NewSecretPass7221"})
+        self.assertEqual(ok_login.status_code, 200)
+        self.assertTrue(ok_login.json.get("success"))
+
+        # 8. Reset back to original password Parvez7221 to keep workspace clean
+        reset_res = client.post("/api/change_password", json={
+            "old_password": "NewSecretPass7221",
+            "new_password": "Parvez7221",
+            "confirm_password": "Parvez7221"
+        })
+        self.assertEqual(reset_res.status_code, 200)
+
 if __name__ == "__main__":
     unittest.main()

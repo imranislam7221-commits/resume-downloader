@@ -24,7 +24,8 @@ ctk.set_default_color_theme("blue")
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(APP_DIR, "config.json")
 ICON_FILE = os.path.join(APP_DIR, "icon.png")
-MASTER_PASSWORD = os.environ.get("RESUMEFLOW_MASTER_PASSWORD", "Parvez7221")
+config_manager = ConfigManager(CONFIG_FILE)
+MASTER_PASSWORD = config_manager.get_master_password()
 
 class MasterPasswordDialog(ctk.CTkToplevel):
     def __init__(self, parent, on_success):
@@ -87,7 +88,7 @@ class MasterPasswordDialog(ctk.CTkToplevel):
 
     def check_password(self):
         val = self.entry_pwd.get().strip()
-        if val == MASTER_PASSWORD:
+        if config_manager.verify_master_password(val):
             self.destroy()
             self.on_success()
         else:

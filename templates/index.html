@@ -1601,6 +1601,56 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Master Security Password Management Card -->
+            <div class="card" style="margin-top: 20px; border-color: rgba(244, 63, 94, 0.3); background: rgba(15, 23, 42, 0.7);">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title" style="color: #f43f5e; display: flex; align-items: center; gap: 8px;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" width="18" height="18" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1.5"/></svg>
+                            <span>Change Master Security Password</span>
+                        </div>
+                        <div class="card-subtitle">Update the master security key required to unlock the web dashboard and desktop app</div>
+                    </div>
+                    <span style="background: rgba(244, 63, 94, 0.15); color: #f43f5e; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px;">Encrypted Key</span>
+                </div>
+
+                <form id="changePasswordForm" onsubmit="handleChangeMasterPassword(event)" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) auto; gap: 14px; align-items: end;">
+                    <div>
+                        <label style="font-size: 12px; font-weight: 700; color: var(--text-title); margin-bottom: 6px; display: block;">Old Master Password</label>
+                        <div style="position: relative;">
+                            <input type="password" id="oldMasterPassword" class="input-field" placeholder="Current password" required style="width: 100%; padding: 8px 30px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
+                            <button type="button" class="btn-inline-toggle" style="position: absolute; right: 6px; top: 7px;" onclick="togglePasswordVisibilityField('oldMasterPassword', this)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 700; color: var(--text-title); margin-bottom: 6px; display: block;">New Master Password</label>
+                        <div style="position: relative;">
+                            <input type="password" id="newMasterPassword" class="input-field" placeholder="Min 4 characters" minlength="4" required style="width: 100%; padding: 8px 30px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
+                            <button type="button" class="btn-inline-toggle" style="position: absolute; right: 6px; top: 7px;" onclick="togglePasswordVisibilityField('newMasterPassword', this)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size: 12px; font-weight: 700; color: var(--text-title); margin-bottom: 6px; display: block;">Confirm New Password</label>
+                        <div style="position: relative;">
+                            <input type="password" id="confirmMasterPassword" class="input-field" placeholder="Repeat new password" minlength="4" required style="width: 100%; padding: 8px 30px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
+                            <button type="button" class="btn-inline-toggle" style="position: absolute; right: 6px; top: 7px;" onclick="togglePasswordVisibilityField('confirmMasterPassword', this)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="submit" id="btnUpdatePassword" class="btn-primary" style="background: #e11d48; border-color: #be123c; padding: 9px 18px; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; height: 38px;">
+                            <span>Update Password</span>
+                        </button>
+                    </div>
+                </form>
+                <div id="changePasswordStatus" style="display: none; margin-top: 12px; font-size: 12px; padding: 10px 14px; border-radius: 8px;"></div>
+            </div>
         </div>
 
         <!-- TAB 5: LIVE TERMINAL & STREAM -->
@@ -1704,15 +1754,72 @@
             }, 3000);
         }
 
-        function togglePasswordVisibility() {
-            const pwd = document.getElementById('appPassword');
-            const eye = document.getElementById('eyeIcon');
-            if (pwd.type === 'password') {
-                pwd.type = 'text';
-                eye.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+        function togglePasswordVisibilityField(inputId, btn) {
+            const inp = document.getElementById(inputId);
+            if (!inp) return;
+            if (inp.type === 'password') {
+                inp.type = 'text';
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="1" y1="1" x2="23" y2="23"/><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/></svg>';
             } else {
-                pwd.type = 'password';
-                eye.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+                inp.type = 'password';
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+            }
+        }
+
+        async function handleChangeMasterPassword(e) {
+            e.preventDefault();
+            const oldPwd = document.getElementById('oldMasterPassword').value.trim();
+            const newPwd = document.getElementById('newMasterPassword').value.trim();
+            const confirmPwd = document.getElementById('confirmMasterPassword').value.trim();
+            const statusDiv = document.getElementById('changePasswordStatus');
+            const btn = document.getElementById('btnUpdatePassword');
+
+            if (newPwd !== confirmPwd) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(244, 63, 94, 0.15)';
+                statusDiv.style.color = '#f43f5e';
+                statusDiv.style.border = '1px solid rgba(244, 63, 94, 0.3)';
+                statusDiv.innerText = '❌ New password and confirmation do not match.';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<span>Updating...</span>';
+
+            try {
+                const res = await fetch('/api/change_password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        old_password: oldPwd,
+                        new_password: newPwd,
+                        confirm_password: confirmPwd
+                    })
+                });
+                const data = await res.json();
+                statusDiv.style.display = 'block';
+                if (data.success) {
+                    statusDiv.style.background = 'rgba(16, 185, 129, 0.15)';
+                    statusDiv.style.color = '#34d399';
+                    statusDiv.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                    statusDiv.innerText = '✅ ' + data.message;
+                    document.getElementById('changePasswordForm').reset();
+                    showToast('🔑 Master Password updated successfully!');
+                } else {
+                    statusDiv.style.background = 'rgba(244, 63, 94, 0.15)';
+                    statusDiv.style.color = '#f43f5e';
+                    statusDiv.style.border = '1px solid rgba(244, 63, 94, 0.3)';
+                    statusDiv.innerText = '❌ ' + (data.error || 'Failed to update password.');
+                }
+            } catch (err) {
+                statusDiv.style.display = 'block';
+                statusDiv.style.background = 'rgba(244, 63, 94, 0.15)';
+                statusDiv.style.color = '#f43f5e';
+                statusDiv.style.border = '1px solid rgba(244, 63, 94, 0.3)';
+                statusDiv.innerText = '❌ Network error: ' + err.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<span>Update Password</span>';
             }
         }
 
