@@ -375,6 +375,7 @@ def save_config_endpoint():
 
 @app.route("/api/change_password", methods=["POST"])
 def change_password_endpoint():
+    global MASTER_PASSWORD
     data = request.json or {}
     old_pwd = (data.get("old_password") or "").strip()
     new_pwd = (data.get("new_password") or "").strip()
@@ -389,6 +390,7 @@ def change_password_endpoint():
 
     ok, msg = config_manager.change_master_password(old_pwd, new_pwd)
     if ok:
+        MASTER_PASSWORD = new_pwd
         add_log("Master security password successfully changed from settings.", "SUCCESS")
         return jsonify({"success": True, "message": msg})
     else:

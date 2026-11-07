@@ -83,6 +83,7 @@ Gmail er standard password ekhane kaj korbe na, Google er security policy onujay
 The web dashboard and desktop workspace are secured with master encryption authentication:
 - **Default Master Password**: `Parvez7221`
 - Can be unlocked from the master login prompt or locked anytime via the top-bar **Lock** button.
+- **Change Master Password**: Recruiter can update the master security key at any time from **Settings > Change Master Security Password** by verifying the old password. All changes instantly synchronize across the Web Dashboard and Desktop Application.
 
 ---
 

@@ -1615,35 +1615,35 @@
                     <span style="background: rgba(244, 63, 94, 0.15); color: #f43f5e; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px;">Encrypted Key</span>
                 </div>
 
-                <form id="changePasswordForm" onsubmit="handleChangeMasterPassword(event)" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) auto; gap: 14px; align-items: end;">
-                    <div>
+                <form id="changePasswordForm" onsubmit="handleChangeMasterPassword(event)" style="display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;">
+                    <div style="flex: 1 1 200px;">
                         <label style="font-size: 12px; font-weight: 700; color: var(--text-title); margin-bottom: 6px; display: block;">Old Master Password</label>
                         <div style="position: relative;">
-                            <input type="password" id="oldMasterPassword" class="input-field" placeholder="Current password" required style="width: 100%; padding: 8px 30px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
-                            <button type="button" class="btn-inline-toggle" style="position: absolute; right: 6px; top: 7px;" onclick="togglePasswordVisibilityField('oldMasterPassword', this)">
+                            <input type="password" id="oldMasterPassword" class="input-field" placeholder="Current password" required style="width: 100%; padding: 8px 36px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
+                            <button type="button" class="btn-inline-toggle" style="top: 50%; transform: translateY(-50%); right: 4px;" onclick="togglePasswordVisibilityField('oldMasterPassword', this)">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             </button>
                         </div>
                     </div>
-                    <div>
+                    <div style="flex: 1 1 200px;">
                         <label style="font-size: 12px; font-weight: 700; color: var(--text-title); margin-bottom: 6px; display: block;">New Master Password</label>
                         <div style="position: relative;">
-                            <input type="password" id="newMasterPassword" class="input-field" placeholder="Min 4 characters" minlength="4" required style="width: 100%; padding: 8px 30px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
-                            <button type="button" class="btn-inline-toggle" style="position: absolute; right: 6px; top: 7px;" onclick="togglePasswordVisibilityField('newMasterPassword', this)">
+                            <input type="password" id="newMasterPassword" class="input-field" placeholder="Min 4 characters" minlength="4" required style="width: 100%; padding: 8px 36px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
+                            <button type="button" class="btn-inline-toggle" style="top: 50%; transform: translateY(-50%); right: 4px;" onclick="togglePasswordVisibilityField('newMasterPassword', this)">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             </button>
                         </div>
                     </div>
-                    <div>
+                    <div style="flex: 1 1 200px;">
                         <label style="font-size: 12px; font-weight: 700; color: var(--text-title); margin-bottom: 6px; display: block;">Confirm New Password</label>
                         <div style="position: relative;">
-                            <input type="password" id="confirmMasterPassword" class="input-field" placeholder="Repeat new password" minlength="4" required style="width: 100%; padding: 8px 30px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
-                            <button type="button" class="btn-inline-toggle" style="position: absolute; right: 6px; top: 7px;" onclick="togglePasswordVisibilityField('confirmMasterPassword', this)">
+                            <input type="password" id="confirmMasterPassword" class="input-field" placeholder="Repeat new password" minlength="4" required style="width: 100%; padding: 8px 36px 8px 10px; border-radius: 8px; background: var(--surface-input); color: #f8fafc; border: 1px solid var(--border-subtle); font-size: 13px;">
+                            <button type="button" class="btn-inline-toggle" style="top: 50%; transform: translateY(-50%); right: 4px;" onclick="togglePasswordVisibilityField('confirmMasterPassword', this)">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                             </button>
                         </div>
                     </div>
-                    <div>
+                    <div style="flex: 0 0 auto;">
                         <button type="submit" id="btnUpdatePassword" class="btn-primary" style="background: #e11d48; border-color: #be123c; padding: 9px 18px; font-size: 12px; font-weight: 700; display: flex; align-items: center; gap: 6px; height: 38px;">
                             <span>Update Password</span>
                         </button>
