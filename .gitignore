@@ -5,6 +5,7 @@ __pycache__/
 
 # Local Sensitive Config
 config.json
+.secret_key
 
 # Local Logs & Data
 *.log

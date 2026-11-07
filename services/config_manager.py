@@ -78,33 +78,45 @@ class ConfigManager:
             merged = {**existing, **data}
 
             # Synchronize accounts and top-level fields
-            accounts = data.get("accounts")
-            if accounts is None:
-                accounts = existing.get("accounts", [])
-
-            if isinstance(accounts, list) and accounts and isinstance(accounts[0], dict):
-                merged["accounts"] = accounts
-                merged["email"] = accounts[0].get("email", "")
-                merged["gmail_address"] = accounts[0].get("email", "")
-                merged["app_password"] = accounts[0].get("app_password", "")
+            if "accounts" in data:
+                accounts = data["accounts"]
+                if isinstance(accounts, list) and accounts and isinstance(accounts[0], dict):
+                    merged["accounts"] = accounts
+                    merged["email"] = accounts[0].get("email", "")
+                    merged["gmail_address"] = accounts[0].get("email", "")
+                    merged["app_password"] = accounts[0].get("app_password", "")
+                else:
+                    merged["accounts"] = []
+                    merged["email"] = ""
+                    merged["gmail_address"] = ""
+                    merged["app_password"] = ""
             else:
-                email_val = (data.get("email") or data.get("gmail_address") or existing.get("email", "")).strip()
-                pwd_val = data.get("app_password") if "app_password" in data else existing.get("app_password", "")
-                merged["email"] = email_val
-                merged["gmail_address"] = email_val
-                merged["app_password"] = pwd_val
-                if email_val or pwd_val:
-                    merged["accounts"] = [{"email": email_val, "app_password": pwd_val}]
+                # If accounts was not in data, check if email/pwd were passed in data
+                email_in_data = "email" in data or "gmail_address" in data
+                pwd_in_data = "app_password" in data
+                if email_in_data or pwd_in_data:
+                    email_val = (data.get("email") if "email" in data else data.get("gmail_address", existing.get("email", ""))).strip()
+                    pwd_val = (data.get("app_password") if "app_password" in data else existing.get("app_password", "")).strip()
+                    merged["email"] = email_val
+                    merged["gmail_address"] = email_val
+                    merged["app_password"] = pwd_val
+                    existing_accounts = existing.get("accounts", [])
+                    if existing_accounts and isinstance(existing_accounts, list):
+                        new_accounts = [dict(acc) for acc in existing_accounts]
+                        new_accounts[0] = {"email": email_val, "app_password": pwd_val}
+                        merged["accounts"] = new_accounts
+                    else:
+                        merged["accounts"] = [{"email": email_val, "app_password": pwd_val}] if (email_val or pwd_val) else []
 
-            # Synchronize telegram token keys
-            tele_tok = (
-                data.get("telegram_token")
-                or data.get("telegram_bot_token")
-                or existing.get("telegram_token")
-                or existing.get("telegram_bot_token", "")
-            )
-            merged["telegram_token"] = tele_tok
-            merged["telegram_bot_token"] = tele_tok
+            # Synchronize telegram token keys, allowing explicit clearing to empty string
+            if "telegram_token" in data or "telegram_bot_token" in data:
+                tele_tok = data.get("telegram_token") if "telegram_token" in data else data.get("telegram_bot_token", "")
+                merged["telegram_token"] = tele_tok
+                merged["telegram_bot_token"] = tele_tok
+            else:
+                tele_tok = existing.get("telegram_token") or existing.get("telegram_bot_token", "")
+                merged["telegram_token"] = tele_tok
+                merged["telegram_bot_token"] = tele_tok
 
             if "telegram_chat_id" not in data and "telegram_chat_id" in existing:
                 merged["telegram_chat_id"] = existing["telegram_chat_id"]

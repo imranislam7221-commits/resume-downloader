@@ -329,6 +329,63 @@ class ComprehensiveTestSuite(unittest.TestCase):
         self.assertFalse(is_safe_doc_path(r"C:\Windows\System32\notepad.exe"))
         self.assertFalse(is_safe_doc_path(r"C:\arbitrary\unauthorized\secret.pdf"))
 
+        # Sibling directory bypass attempt (e.g. app_dir + "_secret")
+        sibling_path = f"{app_dir}_secret\\resume.pdf"
+        self.assertFalse(is_safe_doc_path(sibling_path))
+
+    def test_reserved_names_and_traversal_sanitization(self):
+        # Traversal attempts
+        self.assertEqual(sanitize_folder_name(".."), "Unnamed_Company")
+        self.assertEqual(sanitize_folder_name("."), "Unnamed_Company")
+        
+        # Windows DOS device reserved names
+        self.assertEqual(sanitize_folder_name("CON"), "_CON")
+        self.assertEqual(sanitize_folder_name("aux"), "_aux")
+        self.assertEqual(sanitize_folder_name("NUL"), "_NUL")
+        self.assertEqual(sanitize_filename("CON.pdf"), "_CON.pdf")
+        self.assertEqual(sanitize_filename("prn.docx"), "_prn.docx")
+
+    def test_parse_cloud_filename_with_subject(self):
+        from services.folder_watcher import parse_cloud_filename
+        # Format: YYYYMMDD_HHmm_ApplicantName__Subject__OriginalFilename.ext
+        fname = "20261107_1105_John Doe__Software Engineer__John_CV.pdf"
+        parsed = parse_cloud_filename(fname)
+        app_name, orig, ts = parsed
+        self.assertEqual(app_name, "John Doe")
+        self.assertEqual(orig, "John_CV.pdf")
+        self.assertEqual(ts, "20261107_1105")
+        self.assertEqual(parsed.subject, "Software Engineer")
+
+        # Format without subject: YYYYMMDD_HHmm_ApplicantName__OriginalFilename.ext
+        fname2 = "20261107_1105_Alice Smith__Alice_Resume.docx"
+        parsed2 = parse_cloud_filename(fname2)
+        app_name2, orig2, ts2 = parsed2
+        self.assertEqual(app_name2, "Alice Smith")
+        self.assertEqual(orig2, "Alice_Resume.docx")
+        self.assertEqual(parsed2.subject, "")
+
+    def test_config_manager_partial_update_single_email(self):
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_partial_config.json")
+        cm = ConfigManager(cfg_path)
+        # 1. Initial save with one account
+        cm.save_config({"accounts": [{"email": "old@gmail.com", "app_password": "oldpassword"}]})
+        
+        # 2. Update only email/app_password without accounts key
+        cm.save_config({"email": "new@gmail.com", "app_password": "newpassword1234"})
+        loaded = cm.load_config()
+        self.assertEqual(loaded.get("email"), "new@gmail.com")
+        self.assertEqual(loaded.get("accounts")[0]["email"], "new@gmail.com")
+        self.assertEqual(loaded.get("accounts")[0]["app_password"], "newpassword1234")
+
+        # 3. Clearing telegram token
+        cm.save_config({"telegram_token": "token123"})
+        self.assertEqual(cm.load_config().get("telegram_token"), "token123")
+        cm.save_config({"telegram_token": ""})
+        self.assertEqual(cm.load_config().get("telegram_token"), "")
+
+        if os.path.exists(cfg_path):
+            os.remove(cfg_path)
+
     def test_desktop_app_master_password_constant(self):
         import app
         self.assertEqual(app.MASTER_PASSWORD, "Parvez7221")

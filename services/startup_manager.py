@@ -21,9 +21,19 @@ def enable_startup(app_dir: str = "") -> bool:
     os.makedirs(startup_dir, exist_ok=True)
     target = os.path.join(startup_dir, STARTUP_FILE_NAME)
 
+    python_exe = sys.executable
+    pythonw_candidate = os.path.join(os.path.dirname(python_exe), "pythonw.exe")
+    if os.path.exists(pythonw_candidate):
+        exec_path = pythonw_candidate
+    else:
+        exec_path = python_exe
+
+    safe_app_dir = app_dir.replace('"', '""')
+    safe_exec = exec_path.replace('"', '""')
+
     vbs_content = f'''Set WshShell = CreateObject("WScript.Shell")
-WshShell.CurrentDirectory = "{app_dir}"
-WshShell.Run "python app.py --minimized", 0, False
+WshShell.CurrentDirectory = "{safe_app_dir}"
+WshShell.Run """{safe_exec}"" app.py --minimized", 0, False
 Set WshShell = Nothing
 '''
     try:

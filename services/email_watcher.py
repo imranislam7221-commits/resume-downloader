@@ -14,7 +14,13 @@ except ImportError:
     class MailboxLoginError(Exception): pass
     class ImapToolsError(Exception): pass
 
-from utils.file_utils import sanitize_folder_name, sanitize_filename, get_unique_filepath, ALLOWED_EXTENSIONS
+from utils.file_utils import (
+    sanitize_folder_name,
+    sanitize_filename,
+    get_unique_filepath,
+    ALLOWED_EXTENSIONS,
+    MANIFEST_LOCK
+)
 from services.notification_service import send_windows_toast, send_telegram_alert
 
 EXTENSIONS = ALLOWED_EXTENSIONS + ('.rtf',)
@@ -80,9 +86,9 @@ class EmailWatcher:
         self.thread: Optional[threading.Thread] = None
         self.worker_threads: List[threading.Thread] = []
         self.inspected_uids: Set[str] = set()
+        self.uid_lock = threading.Lock()
         self.known_hashes: Set[str] = set()
         self.hash_lock = threading.Lock()
-        self.manifest_lock = threading.Lock()
         self.duplicates_prevented = 0
         self.scanned_count = 0
         self.matched_count = 0
@@ -91,17 +97,18 @@ class EmailWatcher:
     def _load_existing_hashes(self):
         """Loads SHA256 hashes of previously downloaded files to prevent duplicate downloads."""
         manifest_file = os.path.join(self.base_dir, "resumes_manifest.csv")
-        if os.path.exists(manifest_file):
-            try:
-                with open(manifest_file, "r", encoding="utf-8") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        sha = row.get("SHA256", "").strip()
-                        if sha:
-                            with self.hash_lock:
-                                self.known_hashes.add(sha)
-            except Exception as e:
-                self.log(f"Notice: Could not index existing resume hashes: {e}", "WARNING")
+        with MANIFEST_LOCK:
+            if os.path.exists(manifest_file):
+                try:
+                    with open(manifest_file, "r", encoding="utf-8") as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            sha = row.get("SHA256", "").strip()
+                            if sha:
+                                with self.hash_lock:
+                                    self.known_hashes.add(sha)
+                except Exception as e:
+                    self.log(f"Notice: Could not index existing resume hashes: {e}", "WARNING")
 
     def start(self):
         self.stop_event.clear()
@@ -136,7 +143,7 @@ class EmailWatcher:
         status: str = "New",
         notes: str = ""
     ):
-        with self.manifest_lock:
+        with MANIFEST_LOCK:
             try:
                 os.makedirs(self.base_dir, exist_ok=True)
                 manifest_file = os.path.join(self.base_dir, "resumes_manifest.csv")
@@ -179,11 +186,10 @@ class EmailWatcher:
                 header = next(reader, None)
                 for r in reader:
                     if r:
-                        # Old format has 8 columns: [Downloaded At, Company, Applicant Name, Applicant Email, Email Subject, Filename, File Size (KB), File Path]
                         while len(r) < len(MANIFEST_HEADERS):
-                            r.append("") # Pad missing columns (SHA256, Status, Notes)
+                            r.append("")
                         if len(r) >= 10 and not r[9]:
-                            r[9] = "New" # Default status
+                            r[9] = "New"
                         rows.append(r[:len(MANIFEST_HEADERS)])
 
             with open(manifest_file, "w", newline="", encoding="utf-8") as f:
@@ -233,7 +239,7 @@ class EmailWatcher:
 
         while not self.stop_event.is_set():
             try:
-                with MailBox("imap.gmail.com").login(email_addr, app_pwd) as mailbox:
+                with MailBox("imap.gmail.com", timeout=30).login(email_addr, app_pwd) as mailbox:
                     self.log(f"{tag} Authenticated with Gmail IMAP. Actively listening for applicant emails...", "SUCCESS")
 
                     while not self.stop_event.is_set():
@@ -245,8 +251,10 @@ class EmailWatcher:
                                     if self.stop_event.is_set():
                                         break
 
-                                    if msg.uid in self.inspected_uids:
-                                        continue
+                                    uid_key = f"{email_addr}:{msg.uid}"
+                                    with self.uid_lock:
+                                        if uid_key in self.inspected_uids:
+                                            continue
 
                                     self.scanned_count += 1
                                     sender_raw = msg.from_ or ""
@@ -382,9 +390,10 @@ class EmailWatcher:
                                         except Exception as flag_err:
                                             self.log(f"{tag} Notice: Could not flag email {msg.uid} as read: {flag_err}", "WARNING")
 
-                                    self.inspected_uids.add(msg.uid)
-                                    if len(self.inspected_uids) > 10000:
-                                        self.inspected_uids = set(list(self.inspected_uids)[-5000:])
+                                    with self.uid_lock:
+                                        self.inspected_uids.add(uid_key)
+                                        if len(self.inspected_uids) > 10000:
+                                            self.inspected_uids = set(list(self.inspected_uids)[-5000:])
 
                         except ImapToolsError as fetch_err:
                             self.log(f"{tag} IMAP Fetch Warning: {fetch_err}", "WARNING")

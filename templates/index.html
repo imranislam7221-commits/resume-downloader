@@ -2117,19 +2117,26 @@
         }
 
         function renderManifestTable(records) {
+        let renderedManifestRecords = [];
+        let recentCandidatesRecords = [];
+
+        function renderManifestTable(records) {
+            if (!records || !Array.isArray(records)) records = [];
+            renderedManifestRecords = records;
             const tbody = document.getElementById('manifestBody');
             const countLabel = document.getElementById('manifestCountLabel');
-            countLabel.innerText = `Showing ${records.length} of ${allManifestRecords.length} records`;
+            if (countLabel) {
+                countLabel.innerText = `Showing ${records.length} of ${allManifestRecords.length} records`;
+            }
 
-            if (!records || records.length === 0) {
+            if (records.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 40px;">No resumes match your filter.</td></tr>';
                 return;
             }
-            tbody.innerHTML = records.map(r => {
+            tbody.innerHTML = records.map((r, idx) => {
                 const status = r['Status'] || 'New';
                 const statusClass = getStatusClass(status);
                 const notes = r['Notes'] || '';
-                const fpath = r['File Path'] || '';
                 const fname = r['Filename'] || '';
                 const appName = r['Applicant Name'] || 'Applicant';
                 const comp = r['Company'] || 'General';
@@ -2150,7 +2157,7 @@
                         <span style="font-size: 11px; color: var(--text-muted); margin-left: 6px;">${escapeHtml(r['File Size (KB)'] || '0')} KB</span>
                     </td>
                     <td>
-                        <select class="status-select-pill ${statusClass}" onchange="updateCandidateStatus('${escapeJs(fpath)}', this.value, '${escapeJs(notes)}')">
+                        <select class="status-select-pill ${statusClass}" onchange="updateCandidateStatusByIndex(${idx}, this.value)">
                             <option value="New" ${status === 'New' ? 'selected' : ''}>New</option>
                             <option value="Shortlisted" ${status === 'Shortlisted' ? 'selected' : ''}>Shortlisted</option>
                             <option value="Interview" ${status === 'Interview' ? 'selected' : ''}>Interview</option>
@@ -2159,16 +2166,16 @@
                         </select>
                     </td>
                     <td>
-                        <button class="btn-note ${notes ? 'has-note' : ''}" onclick="openNotesModal('${escapeJs(fpath)}', '${escapeJs(appName)}', '${escapeJs(status)}', '${escapeJs(notes)}')" title="${escapeHtml(notes || 'Add note')}">
+                        <button class="btn-note ${notes ? 'has-note' : ''}" onclick="openNotesModalByIndex(${idx})" title="${escapeHtml(notes || 'Add note')}">
                             <span>📝</span>
                             <span>${notes ? 'Note' : '+'}</span>
                         </button>
                     </td>
                     <td>
                         <div style="display: flex; gap: 4px; align-items: center; justify-content: center;">
-                            ${isPdf ? `<button class="btn-action-small" onclick="previewPdf('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')" title="Preview PDF in Browser">Preview</button>` : ''}
-                            ${canEdit ? `<button class="btn-action-small btn-edit" onclick="openDocumentEditor('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')" title="Edit resume in Universal Editor">Edit</button>` : ''}
-                            <button class="btn-action-small btn-ghost" onclick="openSpecificFile('${escapeJs(fpath)}')" title="Open file on PC">Open</button>
+                            ${isPdf ? `<button class="btn-action-small" onclick="previewPdfByIndex(${idx})" title="Preview PDF in Browser">Preview</button>` : ''}
+                            ${canEdit ? `<button class="btn-action-small btn-edit" onclick="openDocumentEditorByIndex(${idx})" title="Edit resume in Universal Editor">Edit</button>` : ''}
+                            <button class="btn-action-small btn-ghost" onclick="openSpecificFileByIndex(${idx})" title="Open file on PC">Open</button>
                         </div>
                     </td>
                 </tr>
@@ -2176,18 +2183,45 @@
             }).join('');
         }
 
+        function openNotesModalByIndex(idx) {
+            const r = renderedManifestRecords[idx];
+            if (!r) return;
+            openNotesModal(r['File Path'] || '', r['Applicant Name'] || 'Applicant', r['Status'] || 'New', r['Notes'] || '');
+        }
+        function previewPdfByIndex(idx) {
+            const r = renderedManifestRecords[idx];
+            if (!r) return;
+            previewPdf(r['Applicant Name'] || 'Applicant', r['Company'] || 'General', r['Filename'] || '', r['File Path'] || '');
+        }
+        function openDocumentEditorByIndex(idx) {
+            const r = renderedManifestRecords[idx];
+            if (!r) return;
+            openDocumentEditor(r['Applicant Name'] || 'Applicant', r['Company'] || 'General', r['Filename'] || '', r['File Path'] || '');
+        }
+        function openSpecificFileByIndex(idx) {
+            const r = renderedManifestRecords[idx];
+            if (!r) return;
+            openSpecificFile(r['File Path'] || '');
+        }
+        function updateCandidateStatusByIndex(idx, newStatus) {
+            const r = renderedManifestRecords[idx];
+            if (!r) return;
+            updateCandidateStatus(r['File Path'] || '', newStatus, r['Notes'] || '');
+        }
+
         function renderRecentCandidatesFeed(records) {
             const feed = document.getElementById('recentCandidatesFeed');
             if (!records || records.length === 0) {
+                recentCandidatesRecords = [];
                 feed.innerHTML = '<div style="color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center;">No resumes downloaded yet. Start monitoring to ingest applicants.</div>';
                 return;
             }
             const latest = records.slice(0, 5);
-            feed.innerHTML = latest.map(r => {
+            recentCandidatesRecords = latest;
+            feed.innerHTML = latest.map((r, idx) => {
                 const fname = r['Filename'] || '';
                 const appName = r['Applicant Name'] || 'Applicant';
                 const comp = r['Company'] || 'General';
-                const fpath = r['File Path'] || '';
                 const isPdf = fname.toLowerCase().endsWith('.pdf');
                 const canEdit = fname.toLowerCase().endsWith('.pdf') || fname.toLowerCase().endsWith('.docx') || fname.toLowerCase().endsWith('.txt') || fname.toLowerCase().endsWith('.rtf');
 
@@ -2201,13 +2235,29 @@
                         </div>
                     </div>
                     <div style="display: flex; gap: 6px;">
-                        ${isPdf ? `<button class="btn-action-small" onclick="previewPdf('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')">Preview</button>` : ''}
-                        ${canEdit ? `<button class="btn-action-small btn-edit" onclick="openDocumentEditor('${escapeJs(appName)}', '${escapeJs(comp)}', '${escapeJs(fname)}', '${escapeJs(fpath)}')">Edit</button>` : ''}
-                        <button class="btn-action-small btn-ghost" onclick="openSpecificFile('${escapeJs(fpath)}')">Open</button>
+                        ${isPdf ? `<button class="btn-action-small" onclick="previewRecentPdfByIndex(${idx})">Preview</button>` : ''}
+                        ${canEdit ? `<button class="btn-action-small btn-edit" onclick="openRecentDocumentEditorByIndex(${idx})">Edit</button>` : ''}
+                        <button class="btn-action-small btn-ghost" onclick="openRecentSpecificFileByIndex(${idx})">Open</button>
                     </div>
                 </div>
                 `;
             }).join('');
+        }
+
+        function previewRecentPdfByIndex(idx) {
+            const r = recentCandidatesRecords[idx];
+            if (!r) return;
+            previewPdf(r['Applicant Name'] || 'Applicant', r['Company'] || 'General', r['Filename'] || '', r['File Path'] || '');
+        }
+        function openRecentDocumentEditorByIndex(idx) {
+            const r = recentCandidatesRecords[idx];
+            if (!r) return;
+            openDocumentEditor(r['Applicant Name'] || 'Applicant', r['Company'] || 'General', r['Filename'] || '', r['File Path'] || '');
+        }
+        function openRecentSpecificFileByIndex(idx) {
+            const r = recentCandidatesRecords[idx];
+            if (!r) return;
+            openSpecificFile(r['File Path'] || '');
         }
 
         async function fetchStatus() {
@@ -2278,21 +2328,55 @@
         }
 
         function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.innerText = text || '';
-            return div.innerHTML;
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
 
         function escapeJs(str) {
-            return (str || '').replace(/\\\\/g, '\\\\\\\\').replace(/'/g, "\\\\'");
+            return (str || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         }
 
-        // Global Keyboard Shortcut: Space toggles monitoring when not in an input
+        // Global Keyboard Shortcuts:
+        // - Space: Toggles monitoring only when not typing and no modal is open
+        // - Escape: Closes top modal cleanly
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+            const hasOpenModal = document.querySelector('.modal.open');
+            if (e.code === 'Space' && !hasOpenModal && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && !e.target.isContentEditable) {
                 e.preventDefault();
                 toggleMonitoring();
             }
+            if (e.key === 'Escape') {
+                if (document.getElementById('guideModal')?.classList.contains('open')) closeGuideModal();
+                if (document.getElementById('notesModal')?.classList.contains('open')) closeNotesModal();
+                if (document.getElementById('pdfModal')?.classList.contains('open')) closePdfModal();
+                if (document.getElementById('editorModal')?.classList.contains('open')) closeEditorModal();
+                if (document.getElementById('zipModal')?.classList.contains('open')) closeZipModal();
+            }
+        });
+
+        // Close modal on backdrop click (except masterAuthModal which requires unlock)
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.modal').forEach(modal => {
+                if (modal.id === 'masterAuthModal') return;
+                modal.addEventListener('click', (e) => {
+                    if (e.target === modal) {
+                        modal.classList.remove('open');
+                        if (modal.id === 'pdfModal') {
+                            const iframe = document.getElementById('pdfIframe');
+                            if (iframe) iframe.src = 'about:blank';
+                        }
+                        if (modal.id === 'editorModal') {
+                            const area = document.getElementById('resumeContentArea');
+                            if (area) area.value = '';
+                        }
+                    }
+                });
+            });
         });
 
         let isAuthenticated = false;
@@ -2586,9 +2670,9 @@
                 return;
             }
             const area = document.getElementById('resumeContentArea');
-            const regex = new RegExp(findText.split('').map(c => '\\' + c).join(''), 'g');
-            const count = (area.value.match(regex) || []).length;
-            area.value = area.value.replace(regex, replaceText);
+            const parts = area.value.split(findText);
+            const count = parts.length - 1;
+            area.value = area.value.replaceAll(findText, replaceText);
             updateEditorStats();
             showToast(`Replaced ${count} occurrence(s)!`);
         }

@@ -21,16 +21,39 @@ from services.email_watcher import EmailWatcher
 from services.folder_watcher import FolderWatcher
 from services.notification_service import send_windows_toast, send_telegram_alert
 from services.startup_manager import is_startup_enabled, enable_startup, disable_startup
+from utils.file_utils import MANIFEST_LOCK, ALLOWED_EXTENSIONS
 
 app_dir = os.path.dirname(os.path.abspath(__file__))
 config_file = os.path.join(app_dir, "config.json")
 config_manager = ConfigManager(config_file)
 
 app = Flask(__name__, template_folder=os.path.join(app_dir, "templates"))
-app.secret_key = os.environ.get("RESUMEFLOW_SECRET_KEY", "rf_enterprise_master_key_parvez_7221")
+
+# Persistent, cryptographically secure Flask session secret key
+secret_key_env = os.environ.get("RESUMEFLOW_SECRET_KEY")
+if secret_key_env:
+    app.secret_key = secret_key_env
+else:
+    secret_file = os.path.join(app_dir, ".secret_key")
+    if os.path.exists(secret_file):
+        try:
+            with open(secret_file, "r", encoding="utf-8") as f:
+                app.secret_key = f.read().strip()
+        except Exception:
+            app.secret_key = os.urandom(32).hex()
+    else:
+        key = os.urandom(32).hex()
+        try:
+            with open(secret_file, "w", encoding="utf-8") as f:
+                f.write(key)
+        except Exception:
+            pass
+        app.secret_key = key
+
 MASTER_PASSWORD = os.environ.get("RESUMEFLOW_MASTER_PASSWORD", "Parvez7221")
 
 log_messages = []
+log_counter = 0
 log_lock = threading.Lock()
 active_watcher: Optional[Any] = None
 email_watcher: Optional[Any] = None
@@ -85,9 +108,11 @@ def api_auth_status():
     return jsonify({"authenticated": is_auth})
 
 def add_log(message: str, level: str = "INFO"):
+    global log_counter
     timestamp = datetime.now().strftime("%H:%M:%S")
-    entry = {"timestamp": timestamp, "level": level, "message": message}
     with log_lock:
+        log_counter += 1
+        entry = {"id": log_counter, "timestamp": timestamp, "level": level, "message": message}
         log_messages.append(entry)
         if len(log_messages) > 300:
             log_messages.pop(0)
@@ -95,18 +120,19 @@ def add_log(message: str, level: str = "INFO"):
 def get_manifest_records(base_dir: str) -> List[Dict[str, Any]]:
     records = []
     manifest_path = os.path.join(base_dir, "resumes_manifest.csv")
-    if os.path.exists(manifest_path):
-        try:
-            with open(manifest_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if not row.get("Status"):
-                        row["Status"] = "New"
-                    if not row.get("Notes"):
-                        row["Notes"] = ""
-                    records.append(row)
-        except Exception as e:
-            add_log(f"Notice reading manifest: {e}", "WARNING")
+    with MANIFEST_LOCK:
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if not row.get("Status"):
+                            row["Status"] = "New"
+                        if not row.get("Notes"):
+                            row["Notes"] = ""
+                        records.append(row)
+            except Exception as e:
+                add_log(f"Notice reading manifest: {e}", "WARNING")
     return list(reversed(records))
 
 def is_safe_doc_path(file_path: str) -> bool:
@@ -120,59 +146,83 @@ def is_safe_doc_path(file_path: str) -> bool:
         cfg = config_manager.load_config()
         base_dir = os.path.normcase(os.path.abspath(cfg.get("base_directory", app_dir)))
         app_base = os.path.normcase(os.path.abspath(app_dir))
-        return norm_path.startswith(base_dir) or norm_path.startswith(app_base)
+
+        # Check path containment using commonpath to prevent prefix matching sibling bypasses
+        for allowed_root in (base_dir, app_base):
+            try:
+                if os.path.commonpath([norm_path, allowed_root]) == allowed_root:
+                    return True
+            except ValueError:
+                continue
+        return False
     except Exception:
         return False
 
 def update_manifest_row(base_dir: str, file_path: str, new_status: str, new_notes: str) -> bool:
     manifest_path = os.path.join(base_dir, "resumes_manifest.csv")
-    if not os.path.exists(manifest_path):
-        return False
-    rows = []
-    updated = False
-    try:
-        norm_target = os.path.normcase(os.path.abspath(file_path))
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            header = next(reader, None)
-            if not header:
-                return False
-            col_map = {col.strip(): i for i, col in enumerate(header)}
-            path_idx = col_map.get("File Path", 7)
-            status_idx = col_map.get("Status", -1)
-            notes_idx = col_map.get("Notes", -1)
+    with MANIFEST_LOCK:
+        if not os.path.exists(manifest_path):
+            return False
+        rows = []
+        updated = False
+        try:
+            norm_target = os.path.normcase(os.path.abspath(file_path))
+            with open(manifest_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+                if not header:
+                    return False
+                col_map = {col.strip(): i for i, col in enumerate(header)}
+                path_idx = col_map.get("File Path", 7)
+                status_idx = col_map.get("Status", -1)
+                notes_idx = col_map.get("Notes", -1)
 
-            if status_idx == -1:
-                header.append("Status")
-                status_idx = len(header) - 1
-            if notes_idx == -1:
-                header.append("Notes")
-                notes_idx = len(header) - 1
+                if status_idx == -1:
+                    header.append("Status")
+                    status_idx = len(header) - 1
+                if notes_idx == -1:
+                    header.append("Notes")
+                    notes_idx = len(header) - 1
 
-            for row in reader:
-                if not row:
-                    continue
-                while len(row) < len(header):
-                    row.append("")
-                row_path = row[path_idx] if path_idx < len(row) else ""
+                for row in reader:
+                    if not row:
+                        continue
+                    while len(row) < len(header):
+                        row.append("")
+                    row_path = row[path_idx] if path_idx < len(row) else ""
+                    norm_row = os.path.normcase(os.path.abspath(row_path)) if row_path else ""
+                    
+                    if norm_row and norm_target == norm_row:
+                        row[status_idx] = new_status
+                        row[notes_idx] = new_notes
+                        updated = True
+                    rows.append(row)
+
+            if updated:
+                temp_manifest = f"{manifest_path}.tmp_{int(time.time()*1000)}"
+                with open(temp_manifest, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(header)
+                    writer.writerows(rows)
                 
-                norm_row = os.path.normcase(os.path.abspath(row_path)) if row_path else ""
-                # Match specifically on unique full path to prevent cross-updating different candidates with same filename
-                if norm_row and norm_target == norm_row:
-                    row[status_idx] = new_status
-                    row[notes_idx] = new_notes
-                    updated = True
-                rows.append(row)
+                # Atomic file replacement with retry for Windows locking
+                replaced = False
+                for _ in range(5):
+                    try:
+                        os.replace(temp_manifest, manifest_path)
+                        replaced = True
+                        break
+                    except OSError:
+                        time.sleep(0.1)
+                if not replaced:
+                    if os.path.exists(temp_manifest):
+                        os.remove(temp_manifest)
+                    return False
 
-        if updated:
-            with open(manifest_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow(header)
-                writer.writerows(rows)
-        return updated
-    except Exception as e:
-        add_log(f"Error updating candidate status: {e}", "ERROR")
-        return False
+            return updated
+        except Exception as e:
+            add_log(f"Error updating candidate status: {e}", "ERROR")
+            return False
 
 # Document reader & writer engine
 def read_resume_document(file_path: str):
@@ -192,12 +242,9 @@ def read_resume_document(file_path: str):
                         paragraphs.append(row_text)
             text = "\n".join(paragraphs)
         elif ext == ".pdf":
-            doc = pymupdf.open(file_path)
-            pages_text = []
-            for page in doc:
-                pages_text.append(page.get_text())
-            doc.close()
-            text = "\n".join(pages_text).strip()
+            with pymupdf.open(file_path) as doc:
+                pages_text = [page.get_text() for page in doc]
+                text = "\n".join(pages_text).strip()
         elif ext in [".txt", ".rtf"]:
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -225,6 +272,12 @@ def save_resume_document(file_path: str, new_content: str, save_as_new: bool = F
         return {"success": False, "error": "Original file not found."}
 
     ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".doc":
+        return {
+            "success": False,
+            "error": "Direct in-app editing of legacy binary .doc format is not supported. Please edit natively or convert to .docx/.pdf."
+        }
+
     target_path = file_path
 
     if save_as_new:
@@ -242,36 +295,37 @@ def save_resume_document(file_path: str, new_content: str, save_as_new: bool = F
                 new_doc.add_paragraph(line)
             new_doc.save(target_path)
         elif ext == ".pdf":
-            doc = pymupdf.open()
-            margin = 50
-            page_width = 595
-            page_height = 842
-            lines = new_content.split("\n")
-            current_page = doc.new_page(width=page_width, height=page_height)
-            y = margin + 15
-            line_height = 14
+            with pymupdf.open() as doc:
+                margin = 50
+                page_width = 595
+                page_height = 842
+                lines = new_content.split("\n")
+                current_page = doc.new_page(width=page_width, height=page_height)
+                y = margin + 15
+                line_height = 14
 
-            for line in lines:
-                while len(line) > 95:
-                    chunk = line[:95]
-                    line = line[95:]
+                for line in lines:
+                    while len(line) > 95:
+                        chunk = line[:95]
+                        line = line[95:]
+                        if y > page_height - margin:
+                            current_page = doc.new_page(width=page_width, height=page_height)
+                            y = margin + 15
+                        current_page.insert_text((margin, y), chunk, fontsize=10.5, fontname="helv")
+                        y += line_height
+
                     if y > page_height - margin:
                         current_page = doc.new_page(width=page_width, height=page_height)
                         y = margin + 15
-                    current_page.insert_text((margin, y), chunk, fontsize=10.5, fontname="helv")
+                    current_page.insert_text((margin, y), line, fontsize=10.5, fontname="helv")
                     y += line_height
 
-                if y > page_height - margin:
-                    current_page = doc.new_page(width=page_width, height=page_height)
-                    y = margin + 15
-                current_page.insert_text((margin, y), line, fontsize=10.5, fontname="helv")
-                y += line_height
-
-            doc.save(target_path)
-            doc.close()
-        else:
+                doc.save(target_path)
+        elif ext in (".txt", ".rtf"):
             with open(target_path, "w", encoding="utf-8") as f:
                 f.write(new_content)
+        else:
+            return {"success": False, "error": f"Unsupported format '{ext}' for saving."}
 
         size_kb = round(os.path.getsize(target_path) / 1024, 1)
         with open(target_path, "rb") as f:
@@ -306,8 +360,9 @@ def save_config_endpoint():
     try:
         data = request.json or {}
         email_val = data.get("email") or data.get("gmail_address", "")
-        data["email"] = email_val
-        data["gmail_address"] = email_val
+        if email_val:
+            data["email"] = email_val
+            data["gmail_address"] = email_val
         if "telegram_bot_token" in data:
             data["telegram_token"] = data["telegram_bot_token"]
         config_manager.save_config(data)
@@ -356,10 +411,13 @@ def test_telegram_endpoint():
 @app.route("/api/view_pdf", methods=["GET"])
 def view_pdf_endpoint():
     file_path = request.args.get("path", "")
-    if not file_path or not os.path.exists(file_path):
-        return Response("Resume PDF file not found.", status=404)
+    if not file_path:
+        return Response("Missing file path parameter.", status=400)
+    # Check authorization before filesystem presence to prevent information disclosure oracle
     if not is_safe_doc_path(file_path) or not file_path.lower().endswith(".pdf"):
-        return Response("Only PDF documents in authorized directories can be previewed.", status=400)
+        return Response("Only PDF documents in authorized directories can be previewed.", status=403)
+    if not os.path.exists(file_path):
+        return Response("Resume PDF file not found.", status=404)
     return send_file(file_path, mimetype="application/pdf")
 
 @app.route("/api/document/read", methods=["GET"])
@@ -381,8 +439,6 @@ def save_doc_endpoint():
 
     res = save_resume_document(file_path, content, save_as_new)
     if res.get("success"):
-        cfg = config_manager.load_config()
-        base_dir = cfg.get("base_directory", app_dir)
         fname = res.get("filename")
         add_log(f"Edited resume '{fname}' and saved changes to local disk.", "SUCCESS")
     return jsonify(res)
@@ -416,7 +472,7 @@ def test_connection_endpoint():
     if not email_addr or not app_pwd:
         return jsonify({"success": False, "error": "Email and 16-character App Password are required."})
     try:
-        with MailBox("imap.gmail.com").login(email_addr, app_pwd):
+        with MailBox("imap.gmail.com", timeout=15).login(email_addr, app_pwd):
             pass
         add_log("IMAP connection test successful for " + email_addr, "SUCCESS")
         return jsonify({"success": True})
@@ -454,8 +510,9 @@ def export_manifest():
     cfg = config_manager.load_config()
     base_dir = cfg.get("base_directory", app_dir)
     manifest_path = os.path.join(base_dir, "resumes_manifest.csv")
-    if os.path.exists(manifest_path):
-        return send_file(manifest_path, as_attachment=True, download_name="resumes_manifest.csv")
+    with MANIFEST_LOCK:
+        if os.path.exists(manifest_path):
+            return send_file(manifest_path, as_attachment=True, download_name="resumes_manifest.csv")
     headers = {"Content-Disposition": "attachment; filename=resumes_manifest.csv"}
     return Response(
         "Downloaded At,Company,Applicant Name,Applicant Email,Email Subject,Filename,File Size (KB),File Path,SHA256,Status,Notes\n",
@@ -490,7 +547,7 @@ def export_zip_endpoint():
             added_paths = set()
             for r in filtered_records:
                 fpath = r.get("File Path", "")
-                if fpath and os.path.exists(fpath) and fpath not in added_paths:
+                if fpath and is_safe_doc_path(fpath) and os.path.exists(fpath) and fpath not in added_paths:
                     arcname = os.path.join(r.get("Company", "General"), r.get("Filename", os.path.basename(fpath)))
                     zip_file.write(fpath, arcname=arcname)
                     added_paths.add(fpath)
@@ -613,7 +670,6 @@ def start_monitoring_internal(mode: Optional[str] = None, base_dir: Optional[str
         return {"success": True, "mode": "cloud_sync"}
 
     else:
-        # direct_gmail mode (supports multiple accounts)
         accounts = cfg.get("accounts", [])
         if not accounts:
             email_addr = (cfg.get("email") or cfg.get("gmail_address", "")).strip()
@@ -682,14 +738,20 @@ def clear_logs():
 @app.route("/api/logs/stream")
 def stream_logs():
     def event_stream():
-        last_index = 0
+        last_id = 0
+        with log_lock:
+            if log_messages:
+                last_id = log_messages[-1]["id"]
         while True:
+            to_send = []
             with log_lock:
-                current_len = len(log_messages)
-                if last_index < current_len:
-                    for i in range(last_index, current_len):
-                        yield f"data: {json.dumps(log_messages[i])}\n\n"
-                    last_index = current_len
+                for m in log_messages:
+                    if m["id"] > last_id:
+                        to_send.append(m)
+                if to_send:
+                    last_id = to_send[-1]["id"]
+            for m in to_send:
+                yield f"data: {json.dumps(m)}\n\n"
             time.sleep(1)
     return Response(event_stream(), mimetype="text/event-stream")
 
